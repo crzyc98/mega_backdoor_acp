@@ -30,16 +30,18 @@ annual_limits:
   2024:
     compensation_limit_401a17: 345000 # § 401(a)(17) annual compensation limit
     hce_threshold: 155000 # HCE definition threshold
-    elective_deferral_limit_402g: 23000 # § 402(g) elective deferral limit
-    annual_additions_limit_415: 69000 # § 415 annual additions limit (lesser of 100% comp or this amount)
+    elective_deferral_limit_402g: 23000 # § 402(g) elective deferral limit (pre-tax + Roth 401k)
+    annual_additions_limit_415c: 69000 # § 415(c) annual additions limit (employee + employer)
     catch_up_limit_414v: 7500 # § 414(v) catch-up contribution limit (age 50+)
+    super_catch_up_limit: 0 # SECURE 2.0 "Super" catch-up (age 60-63) - not available in 2024
 
   2025:
     compensation_limit_401a17: 350000 # § 401(a)(17) annual compensation limit
     hce_threshold: 160000 # HCE definition threshold (estimated)
-    elective_deferral_limit_402g: 23500 # § 402(g) elective deferral limit (estimated)
-    annual_additions_limit_415: 70000 # § 415 annual additions limit (estimated)
+    elective_deferral_limit_402g: 23500 # § 402(g) elective deferral limit (pre-tax + Roth 401k)
+    annual_additions_limit_415c: 70000 # § 415(c) annual additions limit (employee + employer)
     catch_up_limit_414v: 7500 # § 414(v) catch-up contribution limit (age 50+)
+    super_catch_up_limit: 11250 # SECURE 2.0 "Super" catch-up (age 60-63) - replaces 414(v) for those ages
 
   2026:
     compensation_limit_401a17: 355000 # § 401(a)(17) annual compensation limit (projected)

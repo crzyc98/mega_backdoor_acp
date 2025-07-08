@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 from constants import ACP_MULTIPLIER, ACP_ADDER, RESULTS_FILE, RANDOM_SEED, DEFAULT_ADOPTION_RATES, DEFAULT_CONTRIBUTION_RATES, DEFAULT_PLAN_YEAR, get_compensation_limit
+from contribution_limits import apply_contribution_limits
 
 def apply_compensation_cap(df, plan_year=None):
     """
@@ -148,8 +149,8 @@ def calculate_acp_for_scenario(df_census, hce_adoption_rate, hce_contribution_pe
         raise ValueError("No HCEs found in census data")
     
     # Calculate baseline NHCE ACP (only matching + after-tax contributions per IRC §401(m))
-    nhce_total_contributions = (nhce_data['er_match_amt'] + nhce_data['ee_after_tax_amt'])
-    nhce_acp = (nhce_total_contributions / nhce_data['compensation'] * 100).mean()
+    nhce_data['individual_acp'] = (nhce_data['er_match_amt'] + nhce_data['ee_after_tax_amt']) / nhce_data['compensation'] * 100
+    nhce_acp = nhce_data['individual_acp'].mean()
     
     # Simulate HCE after-tax contributions
     n_adopters = int(len(hce_data) * hce_adoption_rate)
@@ -161,17 +162,20 @@ def calculate_acp_for_scenario(df_census, hce_adoption_rate, hce_contribution_pe
     else:
         adopters = []
     
-    # Calculate after-tax contributions
+    # Calculate after-tax contributions with contribution limits
     hce_data['after_tax_dollars'] = 0.0
     if len(adopters) > 0:
-        hce_data.loc[adopters, 'after_tax_dollars'] = (
-            hce_data.loc[adopters, 'compensation'] * (hce_contribution_percent / 100)
+        # Apply contribution limits to mega-backdoor contributions
+        adjusted_contributions, limits_results = apply_contribution_limits(
+            hce_data.loc[adopters], hce_contribution_percent
         )
+        hce_data.loc[adopters, 'after_tax_dollars'] = adjusted_contributions
     
     # Calculate HCE ACP (only matching + after-tax contributions per IRC §401(m))
     hce_data['total_contributions'] = (hce_data['er_match_amt'] + hce_data['ee_after_tax_amt'] + 
                                      hce_data['after_tax_dollars'])
-    hce_acp = (hce_data['total_contributions'] / hce_data['compensation'] * 100).mean()
+    hce_data['individual_acp'] = hce_data['total_contributions'] / hce_data['compensation'] * 100
+    hce_acp = hce_data['individual_acp'].mean()
     
     # Get detailed breakdown for display
     nhce_total_contributions = (nhce_data['er_match_amt'] + nhce_data['ee_after_tax_amt']).sum()
@@ -185,10 +189,14 @@ def calculate_acp_for_scenario(df_census, hce_adoption_rate, hce_contribution_pe
     # Apply IRS ACP test (IRC §401(m))
     limit_a = nhce_acp * ACP_MULTIPLIER  # 1.25 factor
     limit_b = nhce_acp + ACP_ADDER       # 2.0 percentage point adder
-    max_allowed_hce_acp = min(limit_a, limit_b)
     
-    # Determine pass/fail
-    passed = hce_acp <= max_allowed_hce_acp
+    # Pass if HCE ACP is ≤ either limit (not both)
+    passed_limit_a = hce_acp <= limit_a
+    passed_limit_b = hce_acp <= limit_b
+    passed = passed_limit_a or passed_limit_b
+    
+    # For reporting purposes, use the higher limit (more generous)
+    max_allowed_hce_acp = max(limit_a, limit_b)
     margin = max_allowed_hce_acp - hce_acp
     
     return {
@@ -208,7 +216,12 @@ def calculate_acp_for_scenario(df_census, hce_adoption_rate, hce_contribution_pe
         'hce_total_contributions': round(hce_total_contributions, 0),
         'hce_total_compensation': round(hce_total_compensation, 0),
         'nhce_count': len(nhce_data),
-        'hce_count': len(hce_data)
+        'hce_count': len(hce_data),
+        # Additional limit details
+        'limit_a': round(limit_a, 3),
+        'limit_b': round(limit_b, 3),
+        'passed_limit_a': passed_limit_a,
+        'passed_limit_b': passed_limit_b
     }
 
 def run_scenario_grid(df_census, adoption_rates=None, contribution_rates=None):

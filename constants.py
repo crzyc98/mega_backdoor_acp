@@ -45,6 +45,14 @@ def get_compensation_limit(plan_year):
     """Get § 401(a)(17) compensation limit for specific plan year"""
     return get_annual_limit(plan_year, 'compensation_limit_401a17')
 
+def get_elective_deferral_limit(plan_year):
+    """Get § 402(g) elective deferral limit for specific plan year"""
+    return get_annual_limit(plan_year, 'elective_deferral_limit_402g')
+
+def get_annual_additions_limit(plan_year):
+    """Get § 415(c) annual additions limit for specific plan year"""
+    return get_annual_limit(plan_year, 'annual_additions_limit_415c')
+
 # Default plan year
 DEFAULT_PLAN_YEAR = config['default_plan_year']
 
