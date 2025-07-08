@@ -114,24 +114,43 @@ def create_risk_heatmap(results_df):
     # Convert to numeric for color mapping
     pivot_numeric = pivot_data.map(lambda x: 1 if x == 'PASS' else 0)
     
+    # Check if we have both pass and fail scenarios
+    unique_values = pivot_numeric.values.flatten()
+    unique_values = unique_values[~pd.isna(unique_values)]
+    has_both_outcomes = len(set(unique_values)) > 1
+    
+    # Create color scale based on data
+    if has_both_outcomes:
+        color_scale = [[0, "red"], [1, "green"]]
+        colorbar_title = "Pass/Fail"
+    else:
+        # If all scenarios are the same, use a different color scheme
+        if all(unique_values == 1):
+            color_scale = [[0, "lightgreen"], [1, "green"]]
+            colorbar_title = "All Pass"
+        else:
+            color_scale = [[0, "red"], [1, "darkred"]]
+            colorbar_title = "All Fail"
+    
     # Create heatmap
     fig = px.imshow(
         pivot_numeric,
-        labels=dict(x="HCE Adoption Rate", y="HCE Contribution Rate", color="Pass/Fail"),
+        labels=dict(x="HCE Adoption Rate", y="HCE Contribution Rate", color=colorbar_title),
         x=[f"{rate*100:.0f}%" for rate in pivot_numeric.columns],
         y=[f"{rate:.1f}%" for rate in pivot_numeric.index],
-        color_continuous_scale=["red", "green"],
+        color_continuous_scale=color_scale,
         title="ACP Test Results: Pass/Fail Matrix"
     )
     
-    # Add text annotations
+    # Add text annotations with appropriate color
+    text_color = "white" if has_both_outcomes else "black"
     for i, row in enumerate(pivot_data.index):
         for j, col in enumerate(pivot_data.columns):
             fig.add_annotation(
                 x=j, y=i,
                 text=pivot_data.loc[row, col],
                 showarrow=False,
-                font=dict(color="white", size=12, family="Arial Black")
+                font=dict(color=text_color, size=12, family="Arial Black")
             )
     
     fig.update_layout(
@@ -144,39 +163,47 @@ def create_risk_heatmap(results_df):
 
 def create_margin_analysis(results_df):
     """Create margin analysis visualization"""
-    # Filter for scenarios with positive margins (passing scenarios)
-    passing_scenarios = results_df[results_df['pass_fail'] == 'PASS']
-    
-    if len(passing_scenarios) == 0:
-        return None
-    
-    # Create margin heatmap
-    pivot_margin = passing_scenarios.pivot_table(
+    # Create margin heatmap for all scenarios
+    pivot_margin = results_df.pivot_table(
         index='hce_contribution_percent',
         columns='hce_adoption_rate',
         values='margin',
         aggfunc='first'
     )
     
+    # Determine color range based on data
+    min_margin = pivot_margin.min().min()
+    max_margin = pivot_margin.max().max()
+    
+    # Create color scale that highlights positive vs negative margins
+    if min_margin < 0:
+        color_scale = "RdYlGn"  # Red for negative, Green for positive
+        title = "ACP Test Margins (Negative = Fail, Positive = Pass)"
+    else:
+        color_scale = "Greens"  # All positive margins
+        title = "ACP Test Margins (All Scenarios Pass)"
+    
     fig = px.imshow(
         pivot_margin,
         labels=dict(x="HCE Adoption Rate", y="HCE Contribution Rate", color="Margin %"),
         x=[f"{rate*100:.0f}%" for rate in pivot_margin.columns],
         y=[f"{rate:.1f}%" for rate in pivot_margin.index],
-        color_continuous_scale="RdYlGn",
-        title="ACP Test Margins (Passing Scenarios Only)"
+        color_continuous_scale=color_scale,
+        title=title
     )
     
-    # Add text annotations
+    # Add text annotations with appropriate color
     for i, row in enumerate(pivot_margin.index):
         for j, col in enumerate(pivot_margin.columns):
             value = pivot_margin.loc[row, col]
             if not pd.isna(value):
+                # Use contrasting text color based on margin value
+                text_color = "white" if abs(value) > (max_margin - min_margin) * 0.5 else "black"
                 fig.add_annotation(
                     x=j, y=i,
-                    text=f"{value:.1f}%",
+                    text=f"{value:+.1f}%",
                     showarrow=False,
-                    font=dict(color="black", size=10)
+                    font=dict(color=text_color, size=10, family="Arial")
                 )
     
     fig.update_layout(
@@ -194,13 +221,21 @@ def format_executive_summary(results_df, df_census):
     fail_scenarios = total_scenarios - pass_scenarios
     
     # Find key insights
-    max_safe_contribution = results_df[results_df['pass_fail'] == 'PASS']['hce_contribution_percent'].max()
-    min_failing_contribution = results_df[results_df['pass_fail'] == 'FAIL']['hce_contribution_percent'].min()
+    pass_scenarios_df = results_df[results_df['pass_fail'] == 'PASS']
+    fail_scenarios_df = results_df[results_df['pass_fail'] == 'FAIL']
+    
+    max_safe_contribution = pass_scenarios_df['hce_contribution_percent'].max() if len(pass_scenarios_df) > 0 else None
+    min_failing_contribution = fail_scenarios_df['hce_contribution_percent'].min() if len(fail_scenarios_df) > 0 else None
     
     # Get census summary
     total_employees = len(df_census)
     hce_count = df_census['is_hce'].sum()
     nhce_count = total_employees - hce_count
+    
+    # Calculate margin statistics
+    avg_margin = results_df['margin'].mean()
+    min_margin = results_df['margin'].min()
+    max_margin = results_df['margin'].max()
     
     summary = f"""
 ## Executive Summary - ACP Sensitivity Analysis
@@ -221,19 +256,25 @@ def format_executive_summary(results_df, df_census):
 ### Key Findings
 """
     
-    if pass_scenarios > 0:
-        summary += f"- **✅ Safe Contribution Level:** Up to {max_safe_contribution:.1f}% contribution rate at any adoption level\n"
+    if pass_scenarios > 0 and max_safe_contribution is not None:
+        summary += f"- **✅ Safe Contribution Level:** Up to {max_safe_contribution:.1f}% contribution rate tested successfully\n"
     
-    if fail_scenarios > 0 and not pd.isna(min_failing_contribution):
+    if fail_scenarios > 0 and min_failing_contribution is not None:
         summary += f"- **⚠️ Risk Zone:** Failures begin at {min_failing_contribution:.1f}% contribution rate\n"
+    
+    # Add margin analysis
+    summary += f"- **📊 Margin Analysis:** Average margin {avg_margin:+.2f}% (range: {min_margin:+.2f}% to {max_margin:+.2f}%)\n"
     
     # Add risk assessment
     if fail_scenarios == 0:
         summary += "- **🎯 Risk Assessment:** LOW - All tested scenarios pass ACP requirements\n"
+        summary += "- **💡 Recommendation:** Plan has significant headroom for mega-backdoor contributions\n"
     elif pass_scenarios > fail_scenarios:
         summary += "- **🎯 Risk Assessment:** MODERATE - Most scenarios pass, some restrictions apply\n"
+        summary += "- **💡 Recommendation:** Proceed with caution at higher contribution rates\n"
     else:
         summary += "- **🎯 Risk Assessment:** HIGH - Significant restrictions on mega-backdoor contributions\n"
+        summary += "- **💡 Recommendation:** Consider lower contribution rates or reduced adoption\n"
     
     return summary
 
@@ -357,6 +398,10 @@ def main():
         if margin_fig:
             st.markdown('<div class="section-header">Margin Analysis</div>', unsafe_allow_html=True)
             st.plotly_chart(margin_fig, use_container_width=True)
+            
+            # Add explanation for all-pass scenarios
+            if fail_scenarios == 0:
+                st.info("💡 **Great News!** All tested scenarios pass the ACP requirements. This indicates your plan has significant headroom for mega-backdoor Roth contributions across all tested adoption and contribution rates.")
     
     elif analysis_type == "Detailed Scenarios":
         st.markdown('<div class="section-header">Detailed Scenario Analysis</div>', unsafe_allow_html=True)
