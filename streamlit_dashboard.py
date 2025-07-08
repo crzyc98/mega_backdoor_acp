@@ -430,7 +430,7 @@ def main():
         selected_adoption = st.sidebar.multiselect(
             "Adoption Rates:",
             adoption_options,
-            default=[0.0, 0.25, 0.5, 1.0],
+            default=[0.0, 0.1, 0.2, 0.25],
             format_func=lambda x: f"{x*100:.0f}%"
         )
         
@@ -516,17 +516,20 @@ def main():
         
         # Scenario selection for employee analysis
         st.sidebar.subheader("Select Scenario")
+        adoption_options = sorted(results_df['hce_adoption_rate'].unique())
+        contribution_options = sorted(results_df['hce_contribution_percent'].unique())
+        
         adoption_rate = st.sidebar.selectbox(
             "Adoption Rate:",
-            [0.0, 0.25, 0.5, 0.75, 1.0],
-            index=1,
+            adoption_options,
+            index=1,  # Default to second option (0.05 = 5%)
             format_func=lambda x: f"{x*100:.0f}%"
         )
         
         contribution_rate = st.sidebar.selectbox(
             "Contribution Rate:",
-            [2.0, 4.0, 6.0, 8.0, 10.0, 12.0],
-            index=3,
+            contribution_options,
+            index=3,  # Default to fourth option (8.0%)
             format_func=lambda x: f"{x:.1f}%"
         )
         
