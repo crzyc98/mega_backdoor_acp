@@ -3,6 +3,7 @@ import numpy as np
 from datetime import datetime
 from acp_calculator import load_census, run_scenario_grid
 from constants import RESULTS_FILE, DEFAULT_ADOPTION_RATES, DEFAULT_CONTRIBUTION_RATES
+from enhancements import run_all_enhancements
 
 def create_summary_pivot(results_df):
     """Create pivot table summary for easy visualization"""
@@ -149,6 +150,12 @@ def main():
         print(f"\n✓ Pivot tables created for analysis")
     except Exception as e:
         print(f"❌ Error creating pivot tables: {e}")
+    
+    # Run enhanced features
+    try:
+        results_df, margin_stats = run_all_enhancements(results_df, adoption_rates, contribution_rates)
+    except Exception as e:
+        print(f"❌ Error running enhancements: {e}")
     
     print("\n" + "=" * 50)
     print("Analysis complete!")
