@@ -1,22 +1,53 @@
 # ACP Sensitivity Analyzer - Constants
-# IRS Regulation Constants for ACP Testing
+# Configuration loaded from plan_constants.yaml
+
+import yaml
+import os
+
+# Load configuration from YAML file
+def load_config():
+    config_path = os.path.join(os.path.dirname(__file__), 'plan_constants.yaml')
+    with open(config_path, 'r') as f:
+        return yaml.safe_load(f)
+
+# Load configuration
+config = load_config()
 
 # ACP Test Limits (IRC §401(m))
-ACP_MULTIPLIER = 1.25  # Factor applied to NHCE ACP
-ACP_ADDER = 2.00       # Percentage points added to NHCE ACP
+ACP_MULTIPLIER = config['acp_test']['multiplier']
+ACP_ADDER = config['acp_test']['adder']
 
 # Output Files
-RESULTS_FILE = 'acp_results.csv'
-HEATMAP_FILE = 'acp_heatmap.csv'
+RESULTS_FILE = config['output_files']['results_file']
+HEATMAP_FILE = config['output_files']['heatmap_file']
 
 # Data Validation Constants
-HCE_THRESHOLD = 150000  # 2025 HCE compensation threshold
-MIN_COMPENSATION = 10000  # Minimum reasonable compensation
-MAX_COMPENSATION = 500000  # Maximum reasonable compensation
+MIN_COMPENSATION = config['data_validation']['min_compensation']
+MAX_COMPENSATION = config['data_validation']['max_compensation']
 
 # Scenario Grid Defaults (MVP)
-DEFAULT_ADOPTION_RATES = [0.0, 0.25, 0.50, 0.75, 1.0]
-DEFAULT_CONTRIBUTION_RATES = [2.0, 4.0, 6.0, 8.0, 10.0, 12.0]
+DEFAULT_ADOPTION_RATES = config['scenario_defaults']['adoption_rates']
+DEFAULT_CONTRIBUTION_RATES = config['scenario_defaults']['contribution_rates']
 
 # Random Seed for Reproducibility
-RANDOM_SEED = 42
+RANDOM_SEED = config['random_seed']
+
+# Helper functions for plan year specific values
+def get_annual_limit(plan_year, limit_type):
+    """Get annual limit for specific plan year and limit type"""
+    return config['annual_limits'][plan_year][limit_type]
+
+def get_hce_threshold(plan_year):
+    """Get HCE threshold for specific plan year"""
+    return get_annual_limit(plan_year, 'hce_threshold')
+
+def get_compensation_limit(plan_year):
+    """Get § 401(a)(17) compensation limit for specific plan year"""
+    return get_annual_limit(plan_year, 'compensation_limit_401a17')
+
+# Default plan year
+DEFAULT_PLAN_YEAR = config['default_plan_year']
+
+# Backward compatibility - use default plan year values
+HCE_THRESHOLD = get_hce_threshold(DEFAULT_PLAN_YEAR)
+COMPENSATION_LIMIT_401A17 = get_compensation_limit(DEFAULT_PLAN_YEAR)

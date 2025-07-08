@@ -1,17 +1,46 @@
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from constants import ACP_MULTIPLIER, ACP_ADDER, RESULTS_FILE, RANDOM_SEED, DEFAULT_ADOPTION_RATES, DEFAULT_CONTRIBUTION_RATES
+from constants import ACP_MULTIPLIER, ACP_ADDER, RESULTS_FILE, RANDOM_SEED, DEFAULT_ADOPTION_RATES, DEFAULT_CONTRIBUTION_RATES, DEFAULT_PLAN_YEAR, get_compensation_limit
 
-def load_census(filename='census.csv'):
+def apply_compensation_cap(df, plan_year=None):
+    """
+    Apply § 401(a)(17) compensation cap to census data
+    
+    Args:
+        df: DataFrame with employee data
+        plan_year: Plan year for compensation limit (uses default if None)
+        
+    Returns:
+        pd.DataFrame: DataFrame with capped compensation
+    """
+    if plan_year is None:
+        plan_year = DEFAULT_PLAN_YEAR
+    
+    # Get compensation limit for plan year
+    comp_limit = get_compensation_limit(plan_year)
+    
+    # Apply cap and track how many employees were affected
+    original_comp = df['compensation'].copy()
+    df['compensation'] = df['compensation'].clip(upper=comp_limit)
+    
+    # Count employees affected by cap
+    affected_count = (original_comp > comp_limit).sum()
+    if affected_count > 0:
+        print(f"✓ Applied § 401(a)(17) compensation cap of ${comp_limit:,} to {affected_count} employee(s)")
+    
+    return df
+
+def load_census(filename='census.csv', plan_year=None):
     """
     Load and validate census data from CSV file
     
     Args:
         filename: Path to CSV file containing employee data
+        plan_year: Plan year for compensation limits (uses default if None)
         
     Returns:
-        pd.DataFrame: Validated employee census data
+        pd.DataFrame: Validated employee census data with compensation cap applied
         
     Raises:
         ValueError: If required columns are missing or data is invalid
@@ -45,6 +74,9 @@ def load_census(filename='census.csv'):
         nhce_count = total_employees - hce_count
         
         print(f"✓ Loaded {total_employees} employees ({hce_count} HCEs, {nhce_count} NHCEs)")
+        
+        # Apply compensation cap per § 401(a)(17)
+        df = apply_compensation_cap(df, plan_year)
         
         return df
         
