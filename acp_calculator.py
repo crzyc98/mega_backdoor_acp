@@ -87,6 +87,32 @@ def load_census(filename='census.csv', plan_year=None):
         print(f"❌ Error loading census: {e}")
         raise
 
+def get_census_breakdown(df_census):
+    """Get detailed breakdown of census data for calculations"""
+    hce_data = df_census[df_census['is_hce']].copy()
+    nhce_data = df_census[~df_census['is_hce']].copy()
+    
+    # NHCE calculations
+    nhce_total_contributions = (nhce_data['er_match_amt'] + nhce_data['ee_pre_tax_amt'] + 
+                               nhce_data['ee_after_tax_amt'] + nhce_data['ee_roth_amt'])
+    nhce_total_compensation = nhce_data['compensation'].sum()
+    nhce_total_contrib_dollars = nhce_total_contributions.sum()
+    
+    # HCE baseline calculations
+    hce_baseline_contributions = (hce_data['er_match_amt'] + hce_data['ee_pre_tax_amt'] + 
+                                 hce_data['ee_after_tax_amt'] + hce_data['ee_roth_amt'])
+    hce_total_compensation = hce_data['compensation'].sum()
+    hce_baseline_contrib_dollars = hce_baseline_contributions.sum()
+    
+    return {
+        'nhce_count': len(nhce_data),
+        'nhce_total_compensation': nhce_total_compensation,
+        'nhce_total_contributions': nhce_total_contrib_dollars,
+        'hce_count': len(hce_data),
+        'hce_total_compensation': hce_total_compensation,
+        'hce_baseline_contributions': hce_baseline_contrib_dollars
+    }
+
 def calculate_acp_for_scenario(df_census, hce_adoption_rate, hce_contribution_percent):
     """
     Calculate ACP test results for a single scenario
@@ -149,6 +175,17 @@ def calculate_acp_for_scenario(df_census, hce_adoption_rate, hce_contribution_pe
                                      hce_data['after_tax_dollars'])
     hce_acp = (hce_data['total_contributions'] / hce_data['compensation'] * 100).mean()
     
+    # Get detailed breakdown for display
+    nhce_total_contributions = (nhce_data['er_match_amt'] + nhce_data['ee_pre_tax_amt'] + 
+                               nhce_data['ee_after_tax_amt'] + nhce_data['ee_roth_amt']).sum()
+    nhce_total_compensation = nhce_data['compensation'].sum()
+    
+    hce_baseline_contributions = (hce_data['er_match_amt'] + hce_data['ee_pre_tax_amt'] + 
+                                 hce_data['ee_after_tax_amt'] + hce_data['ee_roth_amt']).sum()
+    hce_mega_backdoor_contributions = hce_data['after_tax_dollars'].sum()
+    hce_total_contributions = hce_data['total_contributions'].sum()
+    hce_total_compensation = hce_data['compensation'].sum()
+    
     # Apply IRS ACP test (IRC §401(m))
     limit_a = nhce_acp * ACP_MULTIPLIER  # 1.25 factor
     limit_b = nhce_acp + ACP_ADDER       # 2.0 percentage point adder
@@ -166,7 +203,16 @@ def calculate_acp_for_scenario(df_census, hce_adoption_rate, hce_contribution_pe
         'max_allowed_hce_acp': round(max_allowed_hce_acp, 3),
         'margin': round(margin, 3),
         'pass_fail': 'PASS' if passed else 'FAIL',
-        'n_hce_contributors': n_adopters
+        'n_hce_contributors': n_adopters,
+        # Detailed breakdown
+        'nhce_total_contributions': round(nhce_total_contributions, 0),
+        'nhce_total_compensation': round(nhce_total_compensation, 0),
+        'hce_baseline_contributions': round(hce_baseline_contributions, 0),
+        'hce_mega_backdoor_contributions': round(hce_mega_backdoor_contributions, 0),
+        'hce_total_contributions': round(hce_total_contributions, 0),
+        'hce_total_compensation': round(hce_total_compensation, 0),
+        'nhce_count': len(nhce_data),
+        'hce_count': len(hce_data)
     }
 
 def run_scenario_grid(df_census, adoption_rates=None, contribution_rates=None):

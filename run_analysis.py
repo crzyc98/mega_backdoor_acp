@@ -19,6 +19,44 @@ def create_summary_pivot(results_df):
     
     return pivot, pivot_numeric
 
+def display_detailed_calculations(results_df, adoption_rates, contribution_rates):
+    """Display detailed ACP calculations for each scenario"""
+    print("\n" + "=" * 100)
+    print("DETAILED ACP CALCULATIONS")
+    print("=" * 100)
+    print("Formula: ACP = (Total Contributions ÷ Total Compensation) × 100")
+    print("IRS Test: HCE ACP ≤ min(NHCE ACP × 1.25, NHCE ACP + 2.0)")
+    print("=" * 100)
+    
+    for adopt_rate in adoption_rates:
+        for contrib_rate in contribution_rates:
+            # Get scenario data
+            scenario = results_df[
+                (results_df['hce_adoption_rate'] == adopt_rate) &
+                (results_df['hce_contribution_percent'] == contrib_rate)
+            ].iloc[0]
+            
+            print(f"\n📊 Scenario: {adopt_rate*100:.0f}% adoption, {contrib_rate:.1f}% contribution")
+            print(f"   ├─ NHCE Group ({int(scenario['nhce_count'])} employees):")
+            print(f"   │  ├─ Total Contributions: ${scenario['nhce_total_contributions']:,.0f}")
+            print(f"   │  ├─ Total Compensation: ${scenario['nhce_total_compensation']:,.0f}")
+            print(f"   │  └─ ACP: ${scenario['nhce_total_contributions']:,.0f} ÷ ${scenario['nhce_total_compensation']:,.0f} × 100 = {scenario['nhce_acp']:.3f}%")
+            print(f"   │")
+            print(f"   ├─ HCE Group ({int(scenario['hce_count'])} employees, {scenario['n_hce_contributors']} contributing):")
+            print(f"   │  ├─ Baseline Contributions: ${scenario['hce_baseline_contributions']:,.0f}")
+            print(f"   │  ├─ Mega-Backdoor Contributions: ${scenario['hce_mega_backdoor_contributions']:,.0f}")
+            print(f"   │  ├─ Total Contributions: ${scenario['hce_total_contributions']:,.0f}")
+            print(f"   │  ├─ Total Compensation: ${scenario['hce_total_compensation']:,.0f}")
+            print(f"   │  └─ ACP: ${scenario['hce_total_contributions']:,.0f} ÷ ${scenario['hce_total_compensation']:,.0f} × 100 = {scenario['hce_acp']:.3f}%")
+            print(f"   │")
+            print(f"   └─ IRS Test Results:")
+            print(f"      ├─ Limit A: {scenario['nhce_acp']:.3f}% × 1.25 = {scenario['nhce_acp'] * 1.25:.3f}%")
+            print(f"      ├─ Limit B: {scenario['nhce_acp']:.3f}% + 2.0 = {scenario['nhce_acp'] + 2.0:.3f}%")
+            print(f"      ├─ Max Allowed: min({scenario['nhce_acp'] * 1.25:.3f}%, {scenario['nhce_acp'] + 2.0:.3f}%) = {scenario['max_allowed_hce_acp']:.3f}%")
+            print(f"      ├─ Margin: {scenario['max_allowed_hce_acp']:.3f}% - {scenario['hce_acp']:.3f}% = {scenario['margin']:+.3f}%")
+            print(f"      └─ Result: {scenario['pass_fail']}")
+            print(f"   {'-' * 90}")
+
 def display_summary_matrix(results_df, adoption_rates, contribution_rates):
     """Display pass/fail matrix with visual symbols"""
     print("\n" + "=" * 50)
@@ -137,6 +175,9 @@ def main():
     
     # Export detailed results
     export_results(results_df)
+    
+    # Display detailed ACP calculations
+    display_detailed_calculations(results_df, adoption_rates, contribution_rates)
     
     # Create and display summary matrix
     display_summary_matrix(results_df, adoption_rates, contribution_rates)
