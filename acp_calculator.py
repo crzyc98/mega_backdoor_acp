@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from constants import ACP_MULTIPLIER, ACP_ADDER, RESULTS_FILE, RANDOM_SEED
+from constants import ACP_MULTIPLIER, ACP_ADDER, RESULTS_FILE, RANDOM_SEED, DEFAULT_ADOPTION_RATES, DEFAULT_CONTRIBUTION_RATES
 
 def load_census(filename='census.csv'):
     """
@@ -135,6 +135,80 @@ def calculate_acp_for_scenario(df_census, hce_adoption_rate, hce_contribution_pe
         'n_hce_contributors': n_adopters
     }
 
+def run_scenario_grid(df_census, adoption_rates=None, contribution_rates=None):
+    """
+    Run all scenario combinations and return results
+    
+    Args:
+        df_census: DataFrame with employee data
+        adoption_rates: List of adoption rates (0.0-1.0). Uses defaults if None
+        contribution_rates: List of contribution percentages (0.0-25.0). Uses defaults if None
+    
+    Returns:
+        pd.DataFrame: Results with all scenarios
+    """
+    # Use default grids if not provided
+    if adoption_rates is None:
+        adoption_rates = DEFAULT_ADOPTION_RATES
+    if contribution_rates is None:
+        contribution_rates = DEFAULT_CONTRIBUTION_RATES
+    
+    # Validate inputs
+    if not adoption_rates or not contribution_rates:
+        raise ValueError("Adoption rates and contribution rates cannot be empty")
+    
+    for rate in adoption_rates:
+        if not 0.0 <= rate <= 1.0:
+            raise ValueError(f"Adoption rate {rate} must be between 0.0 and 1.0")
+    
+    for rate in contribution_rates:
+        if not 0.0 <= rate <= 25.0:
+            raise ValueError(f"Contribution rate {rate} must be between 0.0 and 25.0")
+    
+    # Calculate total scenarios
+    total_scenarios = len(adoption_rates) * len(contribution_rates)
+    
+    # Display header
+    print(f"\nRunning {total_scenarios} scenarios...")
+    print("─" * 50)
+    
+    # Initialize results list
+    results = []
+    scenario_num = 0
+    
+    # Loop through all combinations
+    for i, adopt_rate in enumerate(adoption_rates):
+        for j, contrib_rate in enumerate(contribution_rates):
+            scenario_num += 1
+            
+            # Calculate ACP for this scenario
+            result = calculate_acp_for_scenario(df_census, adopt_rate, contrib_rate)
+            results.append(result)
+            
+            # Display progress
+            status = "✓" if result['pass_fail'] == 'PASS' else "✗"
+            print(f"{status} Scenario {scenario_num}/{total_scenarios}: "
+                  f"{adopt_rate*100:.0f}% adoption, {contrib_rate:.1f}% contribution "
+                  f"→ {result['pass_fail']} (margin: {result['margin']:+.2f}%)")
+    
+    # Convert to DataFrame
+    results_df = pd.DataFrame(results)
+    
+    # Sort by adoption rate, then contribution rate
+    results_df = results_df.sort_values(['hce_adoption_rate', 'hce_contribution_percent'])
+    
+    # Validate results
+    if len(results_df) != total_scenarios:
+        raise ValueError(f"Expected {total_scenarios} results, got {len(results_df)}")
+    
+    # Check for missing data
+    if results_df.isnull().any().any():
+        raise ValueError("Results contain missing data")
+    
+    print(f"\n✓ Completed {total_scenarios} scenarios successfully")
+    
+    return results_df
+
 if __name__ == "__main__":
     # Test the functions
     print("Testing ACP Calculator Functions...")
@@ -144,7 +218,9 @@ if __name__ == "__main__":
     df = load_census()
     print(f"Census loaded successfully: {len(df)} employees")
     
-    # Test calculate_acp_for_scenario with different scenarios
+    # Test individual scenarios
+    print("\nTesting individual scenarios:")
+    print("-" * 50)
     test_scenarios = [
         (0.0, 10.0),  # No adoption
         (1.0, 2.0),   # Full adoption, low contribution
@@ -152,11 +228,20 @@ if __name__ == "__main__":
         (1.0, 12.0),  # Full adoption, high contribution
     ]
     
-    print("\nTesting scenarios:")
-    print("-" * 50)
     for adoption, contribution in test_scenarios:
         result = calculate_acp_for_scenario(df, adoption, contribution)
         print(f"Adoption: {adoption*100:3.0f}%, Contribution: {contribution:4.1f}% → {result['pass_fail']} "
               f"(margin: {result['margin']:6.2f}%)")
+    
+    # Test scenario grid
+    print("\nTesting scenario grid:")
+    print("=" * 50)
+    results_df = run_scenario_grid(df)
+    
+    # Display summary
+    print(f"\nGrid Results Summary:")
+    print(f"Total scenarios: {len(results_df)}")
+    print(f"PASS scenarios: {len(results_df[results_df['pass_fail'] == 'PASS'])}")
+    print(f"FAIL scenarios: {len(results_df[results_df['pass_fail'] == 'FAIL'])}")
     
     print("\n✓ All tests completed successfully!")
