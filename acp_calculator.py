@@ -18,7 +18,7 @@ def load_census(filename='census.csv'):
     """
     try:
         df = pd.read_csv(filename)
-        required_cols = ['employee_id', 'is_hce', 'compensation', 'match_dollars']
+        required_cols = ['employee_id', 'is_hce', 'compensation', 'er_match_amt', 'ee_pre_tax_amt', 'ee_after_tax_amt', 'ee_roth_amt']
         
         # Check required columns
         if not all(col in df.columns for col in required_cols):
@@ -28,18 +28,16 @@ def load_census(filename='census.csv'):
         df['is_hce'] = df['is_hce'].astype(str).str.upper() == 'TRUE'
         
         # Validate data types and ranges
-        if df['compensation'].dtype not in ['int64', 'float64']:
-            raise ValueError("Compensation must be numeric")
+        numeric_cols = ['compensation', 'er_match_amt', 'ee_pre_tax_amt', 'ee_after_tax_amt', 'ee_roth_amt']
         
-        if df['match_dollars'].dtype not in ['int64', 'float64']:
-            raise ValueError("Match dollars must be numeric")
+        for col in numeric_cols:
+            if df[col].dtype not in ['int64', 'float64']:
+                raise ValueError(f"{col} must be numeric")
         
         # Check for negative values
-        if (df['compensation'] < 0).any():
-            raise ValueError("Compensation cannot be negative")
-        
-        if (df['match_dollars'] < 0).any():
-            raise ValueError("Match dollars cannot be negative")
+        for col in numeric_cols:
+            if (df[col] < 0).any():
+                raise ValueError(f"{col} cannot be negative")
         
         # Display summary statistics
         total_employees = len(df)
@@ -91,8 +89,10 @@ def calculate_acp_for_scenario(df_census, hce_adoption_rate, hce_contribution_pe
     if len(hce_data) == 0:
         raise ValueError("No HCEs found in census data")
     
-    # Calculate baseline NHCE ACP (just match contributions)
-    nhce_acp = (nhce_data['match_dollars'] / nhce_data['compensation'] * 100).mean()
+    # Calculate baseline NHCE ACP (all current contributions)
+    nhce_total_contributions = (nhce_data['er_match_amt'] + nhce_data['ee_pre_tax_amt'] + 
+                               nhce_data['ee_after_tax_amt'] + nhce_data['ee_roth_amt'])
+    nhce_acp = (nhce_total_contributions / nhce_data['compensation'] * 100).mean()
     
     # Simulate HCE after-tax contributions
     n_adopters = int(len(hce_data) * hce_adoption_rate)
@@ -111,8 +111,10 @@ def calculate_acp_for_scenario(df_census, hce_adoption_rate, hce_contribution_pe
             hce_data.loc[adopters, 'compensation'] * (hce_contribution_percent / 100)
         )
     
-    # Calculate HCE ACP (match + after-tax)
-    hce_data['total_contributions'] = hce_data['match_dollars'] + hce_data['after_tax_dollars']
+    # Calculate HCE ACP (all current contributions + simulated additional after-tax)
+    hce_data['total_contributions'] = (hce_data['er_match_amt'] + hce_data['ee_pre_tax_amt'] + 
+                                     hce_data['ee_after_tax_amt'] + hce_data['ee_roth_amt'] + 
+                                     hce_data['after_tax_dollars'])
     hce_acp = (hce_data['total_contributions'] / hce_data['compensation'] * 100).mean()
     
     # Apply IRS ACP test (IRC §401(m))
