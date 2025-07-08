@@ -1,5 +1,5 @@
-employee_id,compensation,er_match_amt,ee_pre_tax_amt,ee_after_tax_amt,ee_roth_amt,total_baseline_contributions,baseline_contribution_rate,uses_mega_backdoor,mega_backdoor_contribution,total_contributions,total_contribution_rate
-1,250000,7500,15000,5000,2500,30000,12.0,True,15000.0,45000.0,18.0
-2,200000,7500,12000,4000,2000,25500,12.75,True,12000.0,37500.0,18.75
-3,180000,7500,10800,3600,1800,23700,13.17,True,10800.0,34500.0,19.17
-4,175000,7500,10500,3500,1750,23250,13.29,True,10500.0,33750.0,19.29
+employee_id,compensation,er_match_amt,ee_pre_tax_amt,ee_after_tax_amt,ee_roth_amt,total_baseline_contributions,baseline_contribution_rate,uses_mega_backdoor,mega_backdoor_contribution,total_contributions,total_contribution_rate,acp_contributions,acp_contribution_rate
+1,250000,7500,15000,5000,2500,30000,12.0,True,15000.0,45000.0,18.0,27500.0,11.0
+2,200000,7500,12000,4000,2000,25500,12.75,True,12000.0,37500.0,18.75,23500.0,11.75
+3,180000,7500,10800,3600,1800,23700,13.17,True,10800.0,34500.0,19.17,21900.0,12.17
+4,175000,7500,10500,3500,1750,23250,13.29,True,10500.0,33750.0,19.29,21500.0,12.29

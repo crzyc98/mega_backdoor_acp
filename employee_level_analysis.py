@@ -6,6 +6,7 @@ Shows detailed breakdown of individual employee contributions and impact
 import pandas as pd
 import numpy as np
 from acp_calculator import load_census, calculate_acp_for_scenario
+from contribution_limits import apply_contribution_limits
 from constants import RANDOM_SEED
 
 def analyze_employee_level_scenario(df_census, hce_adoption_rate, hce_contribution_percent, scenario_name=""):
@@ -23,7 +24,15 @@ def analyze_employee_level_scenario(df_census, hce_adoption_rate, hce_contributi
     nhce_data = df[~hce_mask].copy()
     hce_data = df[hce_mask].copy()
     
-    # Calculate baseline NHCE contributions
+    # Calculate baseline NHCE ACP contributions (only matching + after-tax per IRC §401(m))
+    nhce_data['acp_contributions'] = (
+        nhce_data['er_match_amt'] + nhce_data['ee_after_tax_amt']
+    )
+    nhce_data['acp_contribution_rate'] = (
+        nhce_data['acp_contributions'] / nhce_data['compensation'] * 100
+    )
+    
+    # Calculate total baseline contributions for display
     nhce_data['total_baseline_contributions'] = (
         nhce_data['er_match_amt'] + nhce_data['ee_pre_tax_amt'] + 
         nhce_data['ee_after_tax_amt'] + nhce_data['ee_roth_amt']
@@ -42,17 +51,35 @@ def analyze_employee_level_scenario(df_census, hce_adoption_rate, hce_contributi
     else:
         adopters = []
     
-    # Calculate HCE contributions
+    # Calculate HCE contributions with contribution limits
     hce_data['mega_backdoor_contribution'] = 0.0
     hce_data['uses_mega_backdoor'] = False
     
     if len(adopters) > 0:
-        hce_data.loc[adopters, 'mega_backdoor_contribution'] = (
-            hce_data.loc[adopters, 'compensation'] * (hce_contribution_percent / 100)
+        # Apply contribution limits to mega-backdoor contributions
+        adjusted_contributions, limits_results = apply_contribution_limits(
+            hce_data.loc[adopters], hce_contribution_percent
         )
+        hce_data.loc[adopters, 'mega_backdoor_contribution'] = adjusted_contributions
         hce_data.loc[adopters, 'uses_mega_backdoor'] = True
+        
+        # Display any adjustments made
+        if limits_results['total_adjustments'] > 0:
+            print(f"  📊 § 415(c) adjustments made: {limits_results['total_adjustments']} employees affected")
+            for adj in limits_results['adjustments']:
+                print(f"    Employee {adj['employee_id']}: ${adj['proposed_mega_backdoor']:,.0f} → ${adj['actual_mega_backdoor']:,.0f}")
+    else:
+        print("  📊 No HCE employees selected for mega-backdoor contributions")
     
-    # Calculate total contributions for HCEs
+    # Calculate ACP contributions for HCEs (only matching + after-tax per IRC §401(m))
+    hce_data['acp_contributions'] = (
+        hce_data['er_match_amt'] + hce_data['ee_after_tax_amt'] + hce_data['mega_backdoor_contribution']
+    )
+    hce_data['acp_contribution_rate'] = (
+        hce_data['acp_contributions'] / hce_data['compensation'] * 100
+    )
+    
+    # Calculate total contributions for display
     hce_data['total_baseline_contributions'] = (
         hce_data['er_match_amt'] + hce_data['ee_pre_tax_amt'] + 
         hce_data['ee_after_tax_amt'] + hce_data['ee_roth_amt']
@@ -67,17 +94,22 @@ def analyze_employee_level_scenario(df_census, hce_adoption_rate, hce_contributi
         hce_data['total_contributions'] / hce_data['compensation'] * 100
     )
     
-    # Calculate ACP test results
-    nhce_acp = nhce_data['baseline_contribution_rate'].mean()
-    hce_acp = hce_data['total_contribution_rate'].mean()
+    # Calculate ACP test results (use ACP contributions, not total contributions)
+    nhce_acp = nhce_data['acp_contribution_rate'].mean()
+    hce_acp = hce_data['acp_contribution_rate'].mean()
     
-    # IRS two-part test
+    # IRS two-part test (pass if HCE ACP ≤ either limit, not both)
     from constants import ACP_MULTIPLIER, ACP_ADDER
     limit_a = nhce_acp * ACP_MULTIPLIER
     limit_b = nhce_acp + ACP_ADDER
-    max_allowed_hce_acp = min(limit_a, limit_b)
     
-    passed = hce_acp <= max_allowed_hce_acp
+    # Pass if HCE ACP is ≤ either limit (not both)
+    passed_limit_a = hce_acp <= limit_a
+    passed_limit_b = hce_acp <= limit_b
+    passed = passed_limit_a or passed_limit_b
+    
+    # For reporting purposes, use the higher limit (more generous)
+    max_allowed_hce_acp = max(limit_a, limit_b)
     margin = max_allowed_hce_acp - hce_acp
     
     return {
@@ -102,7 +134,7 @@ def analyze_employee_level_scenario(df_census, hce_adoption_rate, hce_contributi
             'employee_id', 'compensation', 'er_match_amt', 'ee_pre_tax_amt', 
             'ee_after_tax_amt', 'ee_roth_amt', 'total_baseline_contributions',
             'baseline_contribution_rate', 'uses_mega_backdoor', 'mega_backdoor_contribution',
-            'total_contributions', 'total_contribution_rate'
+            'total_contributions', 'total_contribution_rate', 'acp_contributions', 'acp_contribution_rate'
         ]].round(2)
     }
 
@@ -138,17 +170,25 @@ def display_employee_level_analysis(analysis_result):
     
     # HCE Details
     print(f"\n🏆 HCE EMPLOYEES ({len(hce_details)} employees):")
-    print(f"   Average Contribution Rate: {summary['hce_acp']:.2f}%")
-    print("   " + "-" * 70)
+    print(f"   Average ACP Rate: {summary['hce_acp']:.2f}%")
+    print("   " + "-" * 90)
     for _, employee in hce_details.iterrows():
         mega_status = "✅ USES MEGA-BACKDOOR" if employee['uses_mega_backdoor'] else "❌ No mega-backdoor"
         baseline_str = f"${employee['total_baseline_contributions']:,.0f}"
         mega_str = f"${employee['mega_backdoor_contribution']:,.0f}" if employee['uses_mega_backdoor'] else "$0"
         total_str = f"${employee['total_contributions']:,.0f}"
+        acp_str = f"${employee['acp_contributions']:,.0f}"
+        
+        # Check § 415(c) limit compliance
+        from constants import get_annual_limit, DEFAULT_PLAN_YEAR
+        limit_415c = get_annual_limit(DEFAULT_PLAN_YEAR, 'annual_additions_limit_415c')
+        effective_limit = min(limit_415c, employee['compensation'])
+        compliance = "✅" if employee['total_contributions'] <= effective_limit else "⚠️ EXCEEDS LIMIT"
         
         print(f"   ID {employee['employee_id']}: ${employee['compensation']:,.0f} comp → "
               f"{baseline_str} baseline + {mega_str} mega = {total_str} total "
-              f"({employee['total_contribution_rate']:.1f}%) {mega_status}")
+              f"({employee['total_contribution_rate']:.1f}%) | ACP: {acp_str} ({employee['acp_contribution_rate']:.1f}%) "
+              f"| § 415(c): {compliance} {mega_status}")
     
     # Impact analysis
     mega_backdoor_users = hce_details[hce_details['uses_mega_backdoor'] == True]
