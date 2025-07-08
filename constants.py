@@ -35,7 +35,7 @@ RANDOM_SEED = config['random_seed']
 # Helper functions for plan year specific values
 def get_annual_limit(plan_year, limit_type):
     """Get annual limit for specific plan year and limit type"""
-    return config['annual_limits'][plan_year][limit_type]
+    return config['annual_limits'][int(plan_year)][limit_type]
 
 def get_hce_threshold(plan_year):
     """Get HCE threshold for specific plan year"""

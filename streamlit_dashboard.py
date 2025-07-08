@@ -598,7 +598,7 @@ def main():
             st.markdown("### ⚖️ IRS Regulatory Limits")
             
             # Display current year limits
-            current_limits = config['annual_limits'][str(DEFAULT_PLAN_YEAR)]
+            current_limits = config['annual_limits'][DEFAULT_PLAN_YEAR]
             
             st.write(f"**§ 402(g) Elective Deferral Limit:** ${current_limits['elective_deferral_limit_402g']:,}")
             st.write(f"**§ 415(c) Annual Additions Limit:** ${current_limits['annual_additions_limit_415c']:,}")
