@@ -1,0 +1,17 @@
+{
+    "recommendations": [
+        "ms-python.python",
+        "ms-python.black-formatter",
+        "ms-python.flake8",
+        "ms-vscode.vscode-json",
+        "redhat.vscode-yaml",
+        "ms-vscode.vscode-typescript-next",
+        "bradlc.vscode-tailwindcss",
+        "esbenp.prettier-vscode",
+        "ms-vscode.vscode-eslint",
+        "github.copilot",
+        "github.vscode-github-actions",
+        "ms-vscode.vscode-docker",
+        "visualstudioexptteam.vscodeintellicode"
+    ]
+}
