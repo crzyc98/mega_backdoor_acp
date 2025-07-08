@@ -139,19 +139,27 @@ def create_risk_heatmap(results_df):
         x=[f"{rate*100:.0f}%" for rate in pivot_numeric.columns],
         y=[f"{rate:.1f}%" for rate in pivot_numeric.index],
         color_continuous_scale=color_scale,
-        title="ACP Test Results: Pass/Fail Matrix"
+        title="ACP Test Results: Pass/Fail Matrix",
+        text_auto=False  # Disable automatic text to control manually
     )
     
     # Add text annotations with appropriate color
     text_color = "white" if has_both_outcomes else "black"
+    
+    # Create text array for the heatmap
+    text_array = []
     for i, row in enumerate(pivot_data.index):
+        text_row = []
         for j, col in enumerate(pivot_data.columns):
-            fig.add_annotation(
-                x=j, y=i,
-                text=pivot_data.loc[row, col],
-                showarrow=False,
-                font=dict(color=text_color, size=12, family="Arial Black")
-            )
+            text_row.append(pivot_data.loc[row, col])
+        text_array.append(text_row)
+    
+    # Update the heatmap with text
+    fig.update_traces(
+        text=text_array,
+        texttemplate="%{text}",
+        textfont=dict(color=text_color, size=14, family="Arial Black")
+    )
     
     fig.update_layout(
         width=800,
@@ -189,22 +197,30 @@ def create_margin_analysis(results_df):
         x=[f"{rate*100:.0f}%" for rate in pivot_margin.columns],
         y=[f"{rate:.1f}%" for rate in pivot_margin.index],
         color_continuous_scale=color_scale,
-        title=title
+        title=title,
+        text_auto=False  # Disable automatic text to control manually
     )
     
-    # Add text annotations with appropriate color
+    # Create text array for the margin heatmap
+    text_array = []
     for i, row in enumerate(pivot_margin.index):
+        text_row = []
         for j, col in enumerate(pivot_margin.columns):
             value = pivot_margin.loc[row, col]
             if not pd.isna(value):
-                # Use contrasting text color based on margin value
-                text_color = "white" if abs(value) > (max_margin - min_margin) * 0.5 else "black"
-                fig.add_annotation(
-                    x=j, y=i,
-                    text=f"{value:+.1f}%",
-                    showarrow=False,
-                    font=dict(color=text_color, size=10, family="Arial")
-                )
+                text_row.append(f"{value:+.1f}%")
+            else:
+                text_row.append("")
+        text_array.append(text_row)
+    
+    # Update the heatmap with text
+    # Use black text for better readability on the green color scheme
+    text_color = "black" if min_margin >= 0 else "white"
+    fig.update_traces(
+        text=text_array,
+        texttemplate="%{text}",
+        textfont=dict(color=text_color, size=12, family="Arial Black")
+    )
     
     fig.update_layout(
         width=800,
