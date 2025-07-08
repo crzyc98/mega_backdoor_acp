@@ -170,6 +170,10 @@ def calculate_acp_for_scenario(df_census, hce_adoption_rate, hce_contribution_pe
             hce_data.loc[adopters], hce_contribution_percent
         )
         hce_data.loc[adopters, 'after_tax_dollars'] = adjusted_contributions
+        
+        # Display any adjustments made for debugging
+        if limits_results['total_adjustments'] > 0:
+            print(f"  📊 § 415(c) adjustments made: {limits_results['total_adjustments']} employees affected")
     
     # Calculate HCE ACP (only matching + after-tax contributions per IRC §401(m))
     hce_data['total_contributions'] = (hce_data['er_match_amt'] + hce_data['ee_after_tax_amt'] + 
