@@ -147,9 +147,8 @@ def calculate_acp_for_scenario(df_census, hce_adoption_rate, hce_contribution_pe
     if len(hce_data) == 0:
         raise ValueError("No HCEs found in census data")
     
-    # Calculate baseline NHCE ACP (all current contributions)
-    nhce_total_contributions = (nhce_data['er_match_amt'] + nhce_data['ee_pre_tax_amt'] + 
-                               nhce_data['ee_after_tax_amt'] + nhce_data['ee_roth_amt'])
+    # Calculate baseline NHCE ACP (only matching + after-tax contributions per IRC §401(m))
+    nhce_total_contributions = (nhce_data['er_match_amt'] + nhce_data['ee_after_tax_amt'])
     nhce_acp = (nhce_total_contributions / nhce_data['compensation'] * 100).mean()
     
     # Simulate HCE after-tax contributions
@@ -169,19 +168,16 @@ def calculate_acp_for_scenario(df_census, hce_adoption_rate, hce_contribution_pe
             hce_data.loc[adopters, 'compensation'] * (hce_contribution_percent / 100)
         )
     
-    # Calculate HCE ACP (all current contributions + simulated additional after-tax)
-    hce_data['total_contributions'] = (hce_data['er_match_amt'] + hce_data['ee_pre_tax_amt'] + 
-                                     hce_data['ee_after_tax_amt'] + hce_data['ee_roth_amt'] + 
+    # Calculate HCE ACP (only matching + after-tax contributions per IRC §401(m))
+    hce_data['total_contributions'] = (hce_data['er_match_amt'] + hce_data['ee_after_tax_amt'] + 
                                      hce_data['after_tax_dollars'])
     hce_acp = (hce_data['total_contributions'] / hce_data['compensation'] * 100).mean()
     
     # Get detailed breakdown for display
-    nhce_total_contributions = (nhce_data['er_match_amt'] + nhce_data['ee_pre_tax_amt'] + 
-                               nhce_data['ee_after_tax_amt'] + nhce_data['ee_roth_amt']).sum()
+    nhce_total_contributions = (nhce_data['er_match_amt'] + nhce_data['ee_after_tax_amt']).sum()
     nhce_total_compensation = nhce_data['compensation'].sum()
     
-    hce_baseline_contributions = (hce_data['er_match_amt'] + hce_data['ee_pre_tax_amt'] + 
-                                 hce_data['ee_after_tax_amt'] + hce_data['ee_roth_amt']).sum()
+    hce_baseline_contributions = (hce_data['er_match_amt'] + hce_data['ee_after_tax_amt']).sum()
     hce_mega_backdoor_contributions = hce_data['after_tax_dollars'].sum()
     hce_total_contributions = hce_data['total_contributions'].sum()
     hce_total_compensation = hce_data['compensation'].sum()
