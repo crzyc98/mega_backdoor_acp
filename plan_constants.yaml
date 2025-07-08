@@ -47,7 +47,7 @@ annual_limits:
     compensation_limit_401a17: 355000 # § 401(a)(17) annual compensation limit (projected)
     hce_threshold: 165000 # HCE definition threshold (projected)
     elective_deferral_limit_402g: 24000 # § 402(g) elective deferral limit (projected)
-    annual_additions_limit_415: 71000 # § 415 annual additions limit (projected)
+    annual_additions_limit_415c: 71000 # § 415(c) annual additions limit (projected)
     catch_up_limit_414v: 7500 # § 414(v) catch-up contribution limit (age 50+)
 
 # Regulatory References

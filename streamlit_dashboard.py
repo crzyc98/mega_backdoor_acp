@@ -373,7 +373,7 @@ def main():
     # Analysis type selection
     analysis_type = st.sidebar.selectbox(
         "Select Analysis Type:",
-        ["Executive Summary", "Detailed Scenarios", "Risk Analysis", "Employee-Level Analysis"]
+        ["Executive Summary", "Detailed Scenarios", "Risk Analysis", "Employee-Level Analysis", "Configuration"]
     )
     
     # Main content area
@@ -570,6 +570,174 @@ def main():
         st.markdown("### NHCE Summary")
         st.write(f"**Average ACP:** {summary['nhce_acp']:.2f}%")
         st.write(f"**Employee Count:** {len(nhce_details)}")
+    
+    elif analysis_type == "Configuration":
+        st.markdown('<div class="section-header">Analysis Configuration</div>', unsafe_allow_html=True)
+        
+        # Import configuration modules
+        from constants import config, DEFAULT_PLAN_YEAR, DEFAULT_ADOPTION_RATES, DEFAULT_CONTRIBUTION_RATES
+        import yaml
+        
+        # Display plan year and scenario configuration
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("### 📅 Plan Year Settings")
+            st.write(f"**Default Plan Year:** {DEFAULT_PLAN_YEAR}")
+            
+            st.markdown("### 📈 Scenario Grid")
+            st.write("**HCE Adoption Rates:**")
+            for rate in DEFAULT_ADOPTION_RATES:
+                st.write(f"  • {rate*100:.0f}%")
+            
+            st.write("**HCE Contribution Rates:**")
+            for rate in DEFAULT_CONTRIBUTION_RATES:
+                st.write(f"  • {rate:.1f}%")
+        
+        with col2:
+            st.markdown("### ⚖️ IRS Regulatory Limits")
+            
+            # Display current year limits
+            current_limits = config['annual_limits'][str(DEFAULT_PLAN_YEAR)]
+            
+            st.write(f"**§ 402(g) Elective Deferral Limit:** ${current_limits['elective_deferral_limit_402g']:,}")
+            st.write(f"**§ 415(c) Annual Additions Limit:** ${current_limits['annual_additions_limit_415c']:,}")
+            st.write(f"**§ 401(a)(17) Compensation Limit:** ${current_limits['compensation_limit_401a17']:,}")
+            st.write(f"**§ 414(v) Catch-up Limit (Age 50+):** ${current_limits['catch_up_limit_414v']:,}")
+            if current_limits.get('super_catch_up_limit', 0) > 0:
+                st.write(f"**SECURE 2.0 Super Catch-up (Age 60-63):** ${current_limits['super_catch_up_limit']:,}")
+        
+        # Display full YAML configuration
+        st.markdown('<div class="section-header">Complete YAML Configuration</div>', unsafe_allow_html=True)
+        
+        # Read and display the YAML file
+        try:
+            with open('plan_constants.yaml', 'r') as file:
+                yaml_content = file.read()
+            
+            st.markdown("#### 📄 plan_constants.yaml")
+            st.code(yaml_content, language='yaml')
+            
+        except FileNotFoundError:
+            st.error("⚠️ plan_constants.yaml file not found")
+        except Exception as e:
+            st.error(f"⚠️ Error reading configuration: {e}")
+        
+        # ACP Test Configuration
+        st.markdown('<div class="section-header">ACP Test Parameters</div>', unsafe_allow_html=True)
+        
+        from constants import ACP_MULTIPLIER, ACP_ADDER, RANDOM_SEED
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("#### 🧮 Test Formulas")
+            st.write("**ACP Calculation:**")
+            st.code("ACP = (Matching + After-Tax Contributions) ÷ Compensation × 100", language='text')
+            
+            st.write("**Individual Level Calculation:**")
+            st.code("Group ACP = Average of individual employee ACP rates", language='text')
+            
+        with col2:
+            st.markdown("#### 📊 IRS Test Limits")
+            st.write(f"**Limit A:** NHCE ACP × {ACP_MULTIPLIER} (125% rule)")
+            st.write(f"**Limit B:** NHCE ACP + {ACP_ADDER}% (2 percentage point rule)")
+            st.write("**Pass Criteria:** HCE ACP ≤ either Limit A OR Limit B")
+            
+            st.markdown("#### 🎲 Simulation Settings")
+            st.write(f"**Random Seed:** {RANDOM_SEED}")
+            st.write("**Purpose:** Ensures reproducible HCE selection")
+        
+        # Display census summary
+        st.markdown('<div class="section-header">Census Data Summary</div>', unsafe_allow_html=True)
+        
+        # Census statistics
+        total_employees = len(df_census)
+        hce_count = df_census['is_hce'].sum()
+        nhce_count = total_employees - hce_count
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("Total Employees", total_employees)
+            st.metric("HCE Count", hce_count)
+            st.metric("NHCE Count", nhce_count)
+        
+        with col2:
+            st.metric("HCE Percentage", f"{hce_count/total_employees*100:.1f}%")
+            
+            # Compensation statistics
+            avg_hce_comp = df_census[df_census['is_hce']]['compensation'].mean()
+            avg_nhce_comp = df_census[~df_census['is_hce']]['compensation'].mean()
+            
+            st.metric("Avg HCE Compensation", f"${avg_hce_comp:,.0f}")
+            st.metric("Avg NHCE Compensation", f"${avg_nhce_comp:,.0f}")
+        
+        with col3:
+            # Total compensation
+            total_comp = df_census['compensation'].sum()
+            hce_comp_pct = df_census[df_census['is_hce']]['compensation'].sum() / total_comp * 100
+            
+            st.metric("Total Compensation", f"${total_comp:,.0f}")
+            st.metric("HCE Compensation %", f"{hce_comp_pct:.1f}%")
+            
+            # Contribution statistics
+            total_contributions = (df_census['er_match_amt'] + df_census['ee_pre_tax_amt'] + 
+                                 df_census['ee_after_tax_amt'] + df_census['ee_roth_amt']).sum()
+            st.metric("Total Baseline Contributions", f"${total_contributions:,.0f}")
+        
+        # Configuration export
+        st.markdown('<div class="section-header">Export Configuration</div>', unsafe_allow_html=True)
+        
+        # Create downloadable configuration summary
+        config_summary = f"""
+# ACP Sensitivity Analysis Configuration Summary
+Generated: {datetime.now().strftime('%B %d, %Y at %I:%M %p')}
+
+## Plan Year Settings
+- Default Plan Year: {DEFAULT_PLAN_YEAR}
+
+## IRS Regulatory Limits ({DEFAULT_PLAN_YEAR})
+- § 402(g) Elective Deferral Limit: ${current_limits['elective_deferral_limit_402g']:,}
+- § 415(c) Annual Additions Limit: ${current_limits['annual_additions_limit_415c']:,}
+- § 401(a)(17) Compensation Limit: ${current_limits['compensation_limit_401a17']:,}
+- § 414(v) Catch-up Limit: ${current_limits['catch_up_limit_414v']:,}
+"""
+        
+        if current_limits.get('super_catch_up_limit', 0) > 0:
+            config_summary += f"- SECURE 2.0 Super Catch-up: ${current_limits['super_catch_up_limit']:,}\n"
+        
+        config_summary += f"""
+## Scenario Grid
+- HCE Adoption Rates: {[f'{r*100:.0f}%' for r in DEFAULT_ADOPTION_RATES]}
+- HCE Contribution Rates: {[f'{r:.1f}%' for r in DEFAULT_CONTRIBUTION_RATES]}
+
+## Census Summary
+- Total Employees: {total_employees:,}
+- HCE Count: {hce_count} ({hce_count/total_employees*100:.1f}%)
+- NHCE Count: {nhce_count} ({nhce_count/total_employees*100:.1f}%)
+- Average HCE Compensation: ${avg_hce_comp:,.0f}
+- Average NHCE Compensation: ${avg_nhce_comp:,.0f}
+
+## ACP Test Parameters
+- ACP Multiplier: {ACP_MULTIPLIER} (125% rule)
+- ACP Adder: {ACP_ADDER}% (2 percentage point rule)
+- Random Seed: {RANDOM_SEED}
+- Test Logic: HCE ACP ≤ either Limit A OR Limit B
+
+## Notes
+- ACP includes only matching and after-tax contributions per IRC §401(m)
+- Individual-level calculation with group averaging
+- § 415(c) limits enforced at individual employee level
+- All scenarios tested with Monte Carlo simulation
+"""
+        
+        st.download_button(
+            label="📥 Download Configuration Summary",
+            data=config_summary,
+            file_name=f"acp_config_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+            mime="text/plain"
+        )
     
     # Footer
     st.markdown("---")
