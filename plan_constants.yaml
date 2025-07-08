@@ -2,23 +2,23 @@
 # Source: IRS Publication 15-B and annual cost-of-living adjustments
 
 # Default Configuration
-default_plan_year: 2025
+default_plan_year: 2024
 random_seed: 42
 
 # ACP Test Configuration (IRC §401(m))
 acp_test:
-  multiplier: 1.25      # Factor applied to NHCE ACP
-  adder: 2.00          # Percentage points added to NHCE ACP
+  multiplier: 1.25 # Factor applied to NHCE ACP
+  adder: 2.00 # Percentage points added to NHCE ACP
 
 # Output Configuration
 output_files:
-  results_file: 'acp_results.csv'
-  heatmap_file: 'acp_heatmap.csv'
+  results_file: "acp_results.csv"
+  heatmap_file: "acp_heatmap.csv"
 
 # Data Validation
 data_validation:
-  min_compensation: 10000   # Minimum reasonable compensation
-  max_compensation: 500000  # Maximum reasonable compensation
+  min_compensation: 10000 # Minimum reasonable compensation
+  max_compensation: 500000 # Maximum reasonable compensation
 
 # Scenario Analysis Defaults (MVP)
 scenario_defaults:
@@ -28,25 +28,25 @@ scenario_defaults:
 # Annual Regulatory Limits by Plan Year
 annual_limits:
   2024:
-    compensation_limit_401a17: 345000  # § 401(a)(17) annual compensation limit
-    hce_threshold: 155000              # HCE definition threshold
-    elective_deferral_limit_402g: 23000  # § 402(g) elective deferral limit
-    annual_additions_limit_415: 69000   # § 415 annual additions limit (lesser of 100% comp or this amount)
-    catch_up_limit_414v: 7500          # § 414(v) catch-up contribution limit (age 50+)
-    
+    compensation_limit_401a17: 345000 # § 401(a)(17) annual compensation limit
+    hce_threshold: 155000 # HCE definition threshold
+    elective_deferral_limit_402g: 23000 # § 402(g) elective deferral limit
+    annual_additions_limit_415: 69000 # § 415 annual additions limit (lesser of 100% comp or this amount)
+    catch_up_limit_414v: 7500 # § 414(v) catch-up contribution limit (age 50+)
+
   2025:
-    compensation_limit_401a17: 350000  # § 401(a)(17) annual compensation limit
-    hce_threshold: 160000              # HCE definition threshold (estimated)
-    elective_deferral_limit_402g: 23500  # § 402(g) elective deferral limit (estimated)
-    annual_additions_limit_415: 70000   # § 415 annual additions limit (estimated)
-    catch_up_limit_414v: 7500          # § 414(v) catch-up contribution limit (age 50+)
-    
+    compensation_limit_401a17: 350000 # § 401(a)(17) annual compensation limit
+    hce_threshold: 160000 # HCE definition threshold (estimated)
+    elective_deferral_limit_402g: 23500 # § 402(g) elective deferral limit (estimated)
+    annual_additions_limit_415: 70000 # § 415 annual additions limit (estimated)
+    catch_up_limit_414v: 7500 # § 414(v) catch-up contribution limit (age 50+)
+
   2026:
-    compensation_limit_401a17: 355000  # § 401(a)(17) annual compensation limit (projected)
-    hce_threshold: 165000              # HCE definition threshold (projected)
-    elective_deferral_limit_402g: 24000  # § 402(g) elective deferral limit (projected)
-    annual_additions_limit_415: 71000   # § 415 annual additions limit (projected)
-    catch_up_limit_414v: 7500          # § 414(v) catch-up contribution limit (age 50+)
+    compensation_limit_401a17: 355000 # § 401(a)(17) annual compensation limit (projected)
+    hce_threshold: 165000 # HCE definition threshold (projected)
+    elective_deferral_limit_402g: 24000 # § 402(g) elective deferral limit (projected)
+    annual_additions_limit_415: 71000 # § 415 annual additions limit (projected)
+    catch_up_limit_414v: 7500 # § 414(v) catch-up contribution limit (age 50+)
 
 # Regulatory References
 regulatory_notes:
