@@ -1,0 +1,582 @@
+openapi: 3.1.0
+info:
+  title: ACP Sensitivity Analyzer API
+  description: |
+    REST API for ACP (Actual Contribution Percentage) sensitivity analysis.
+    Enables programmatic census upload, scenario analysis, and results export
+    for mega-backdoor Roth compliance testing.
+  version: 1.0.0
+  contact:
+    name: API Support
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development
+  - url: https://api.example.com/api/v1
+    description: Production
+
+tags:
+  - name: Census
+    description: Census data upload and management
+  - name: Analysis
+    description: ACP scenario analysis
+  - name: Export
+    description: Results export
+
+paths:
+  /census:
+    post:
+      tags: [Census]
+      summary: Upload a new census
+      description: |
+        Upload participant census data in CSV format. PII fields are automatically
+        stripped and replaced with non-reversible internal identifiers.
+      operationId: uploadCensus
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, plan_year]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: CSV file with participant data
+                plan_year:
+                  type: integer
+                  minimum: 2020
+                  maximum: 2100
+                  description: Plan year for analysis
+                name:
+                  type: string
+                  maxLength: 255
+                  description: Optional name for the census
+      responses:
+        '201':
+          description: Census created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Census'
+        '400':
+          description: Invalid census data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    get:
+      tags: [Census]
+      summary: List all censuses
+      description: Retrieve a list of all uploaded censuses
+      operationId: listCensuses
+      parameters:
+        - name: plan_year
+          in: query
+          schema:
+            type: integer
+          description: Filter by plan year
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 100
+          description: Maximum results to return
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+          description: Number of results to skip
+      responses:
+        '200':
+          description: List of censuses
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CensusSummary'
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+
+  /census/{census_id}:
+    get:
+      tags: [Census]
+      summary: Get census details
+      description: Retrieve details for a specific census
+      operationId: getCensus
+      parameters:
+        - $ref: '#/components/parameters/CensusId'
+      responses:
+        '200':
+          description: Census details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Census'
+        '404':
+          description: Census not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      tags: [Census]
+      summary: Delete a census
+      description: Delete a census and all associated analysis results
+      operationId: deleteCensus
+      parameters:
+        - $ref: '#/components/parameters/CensusId'
+      responses:
+        '204':
+          description: Census deleted successfully
+        '404':
+          description: Census not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /census/{census_id}/analysis:
+    post:
+      tags: [Analysis]
+      summary: Run single scenario analysis
+      description: |
+        Run a single ACP test scenario for the specified census.
+        Returns PASS/FAIL result with margin and detailed breakdown.
+      operationId: runSingleAnalysis
+      parameters:
+        - $ref: '#/components/parameters/CensusId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SingleScenarioRequest'
+      responses:
+        '200':
+          description: Analysis result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisResult'
+        '400':
+          description: Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '404':
+          description: Census not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /census/{census_id}/grid:
+    post:
+      tags: [Analysis]
+      summary: Run grid scenario analysis
+      description: |
+        Run multiple ACP test scenarios across a grid of adoption rates
+        and contribution rates. Returns heatmap-ready results.
+      operationId: runGridAnalysis
+      parameters:
+        - $ref: '#/components/parameters/CensusId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GridScenarioRequest'
+      responses:
+        '200':
+          description: Grid analysis results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GridAnalysisResult'
+        '400':
+          description: Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '404':
+          description: Census not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /census/{census_id}/results:
+    get:
+      tags: [Analysis]
+      summary: List analysis results
+      description: Retrieve all analysis results for a census
+      operationId: listResults
+      parameters:
+        - $ref: '#/components/parameters/CensusId'
+        - name: grid_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+          description: Filter by grid analysis ID
+      responses:
+        '200':
+          description: List of analysis results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AnalysisResult'
+                  total:
+                    type: integer
+
+  /export/{census_id}/csv:
+    get:
+      tags: [Export]
+      summary: Export results as CSV
+      description: |
+        Export analysis results to CSV format with full audit metadata.
+        Includes all input parameters, calculation details, and timestamps.
+      operationId: exportCsv
+      parameters:
+        - $ref: '#/components/parameters/CensusId'
+        - name: grid_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+          description: Export specific grid results
+      responses:
+        '200':
+          description: CSV file
+          content:
+            text/csv:
+              schema:
+                type: string
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+              example: attachment; filename="acp_results_2026-01-12.csv"
+        '404':
+          description: Census or results not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /export/{census_id}/pdf:
+    get:
+      tags: [Export]
+      summary: Export results as PDF
+      description: |
+        Export analysis results as a formatted PDF report suitable for
+        compliance documentation.
+      operationId: exportPdf
+      parameters:
+        - $ref: '#/components/parameters/CensusId'
+        - name: grid_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+          description: Export specific grid results
+      responses:
+        '200':
+          description: PDF file
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+              example: attachment; filename="acp_report_2026-01-12.pdf"
+        '404':
+          description: Census or results not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /health:
+    get:
+      summary: Health check
+      description: Check API health and version
+      operationId: healthCheck
+      responses:
+        '200':
+          description: API is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+                  version:
+                    type: string
+                    example: 1.0.0
+
+components:
+  parameters:
+    CensusId:
+      name: census_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Census unique identifier
+
+  schemas:
+    Census:
+      type: object
+      required: [id, name, plan_year, upload_timestamp, participant_count, hce_count, nhce_count, version]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        plan_year:
+          type: integer
+        upload_timestamp:
+          type: string
+          format: date-time
+        participant_count:
+          type: integer
+        hce_count:
+          type: integer
+        nhce_count:
+          type: integer
+        version:
+          type: string
+
+    CensusSummary:
+      type: object
+      required: [id, name, plan_year, participant_count, hce_count, nhce_count]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        plan_year:
+          type: integer
+        participant_count:
+          type: integer
+        hce_count:
+          type: integer
+        nhce_count:
+          type: integer
+
+    SingleScenarioRequest:
+      type: object
+      required: [adoption_rate, contribution_rate]
+      properties:
+        adoption_rate:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: Percentage of HCEs adopting mega-backdoor (0-100)
+        contribution_rate:
+          type: number
+          minimum: 0
+          maximum: 15
+          description: Mega-backdoor contribution rate as % of compensation (0-15)
+        seed:
+          type: integer
+          description: Random seed for HCE selection (optional, auto-generated if omitted)
+
+    GridScenarioRequest:
+      type: object
+      required: [adoption_rates, contribution_rates]
+      properties:
+        adoption_rates:
+          type: array
+          items:
+            type: number
+            minimum: 0
+            maximum: 100
+          minItems: 2
+          maxItems: 20
+          description: List of adoption rates to test (0-100)
+          example: [0, 25, 50, 75, 100]
+        contribution_rates:
+          type: array
+          items:
+            type: number
+            minimum: 0
+            maximum: 15
+          minItems: 2
+          maxItems: 20
+          description: List of contribution rates to test (0-15)
+          example: [2, 4, 6, 8, 10, 12]
+        seed:
+          type: integer
+          description: Random seed for HCE selection (shared across all scenarios)
+        name:
+          type: string
+          maxLength: 255
+          description: Optional name for the grid analysis
+
+    AnalysisResult:
+      type: object
+      required: [id, census_id, adoption_rate, contribution_rate, seed, nhce_acp, hce_acp, threshold, margin, result, limiting_test, run_timestamp, version]
+      properties:
+        id:
+          type: string
+          format: uuid
+        census_id:
+          type: string
+          format: uuid
+        grid_analysis_id:
+          type: string
+          format: uuid
+          nullable: true
+        adoption_rate:
+          type: number
+          description: HCE adoption rate (0-100)
+        contribution_rate:
+          type: number
+          description: Contribution rate (0-15)
+        seed:
+          type: integer
+          description: Random seed used for HCE selection
+        nhce_acp:
+          type: number
+          description: NHCE group ACP percentage
+        hce_acp:
+          type: number
+          description: HCE group ACP percentage
+        threshold:
+          type: number
+          description: Maximum allowed HCE ACP
+        margin:
+          type: number
+          description: Distance from threshold (positive = PASS margin, negative = FAIL by)
+        result:
+          type: string
+          enum: [PASS, FAIL]
+        limiting_test:
+          type: string
+          enum: ['1.25x', '+2.0']
+          description: Which IRS test branch determined the threshold
+        run_timestamp:
+          type: string
+          format: date-time
+        version:
+          type: string
+
+    GridAnalysisResult:
+      type: object
+      required: [id, census_id, adoption_rates, contribution_rates, seed, results, summary, created_timestamp, version]
+      properties:
+        id:
+          type: string
+          format: uuid
+        census_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          nullable: true
+        adoption_rates:
+          type: array
+          items:
+            type: number
+        contribution_rates:
+          type: array
+          items:
+            type: number
+        seed:
+          type: integer
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnalysisResult'
+        summary:
+          type: object
+          properties:
+            total_scenarios:
+              type: integer
+            pass_count:
+              type: integer
+            fail_count:
+              type: integer
+            pass_rate:
+              type: number
+        created_timestamp:
+          type: string
+          format: date-time
+        version:
+          type: string
+
+    ValidationError:
+      type: object
+      required: [detail]
+      properties:
+        detail:
+          type: array
+          items:
+            type: object
+            properties:
+              loc:
+                type: array
+                items:
+                  type: string
+              msg:
+                type: string
+              type:
+                type: string
+
+    Error:
+      type: object
+      required: [error, message]
+      properties:
+        error:
+          type: string
+        message:
+          type: string
