@@ -20,9 +20,20 @@ from src.api.schemas import (
     GridScenarioRequest,
     GridSummary,
     SingleScenarioRequest,
+    # T026-T028: V2 schemas
+    ScenarioRequestV2,
+    ScenarioResultV2,
+    GridRequestV2,
+    GridResultV2,
+    GridSummaryV2,
+    FailurePointResponse,
+    DebugDetailsResponse,
+    ParticipantContributionResponse,
+    IntermediateValuesResponse,
 )
 from src.core.constants import RATE_LIMIT, SYSTEM_VERSION
-from src.core.scenario_runner import run_single_scenario, run_grid_scenarios
+from src.core.scenario_runner import run_single_scenario, run_grid_scenarios, run_single_scenario_v2, run_grid_scenarios_v2
+from src.core.models import ScenarioStatus
 from src.storage.database import get_db
 from src.storage.models import AnalysisResult as AnalysisResultModel
 from src.storage.models import GridAnalysis as GridAnalysisModel
@@ -309,4 +320,235 @@ async def list_results(
             for r in results
         ],
         total=total,
+    )
+
+
+# ============================================================================
+# V2 API Endpoints (Feature 004-scenario-analysis)
+# ============================================================================
+
+# T027: V2 single scenario endpoint with PASS/RISK/FAIL/ERROR status
+@router.post(
+    "/v2/scenario",
+    response_model=ScenarioResultV2,
+    summary="Run single scenario analysis (v2)",
+    description=(
+        "Run a single ACP test scenario with enhanced result data. "
+        "Returns PASS/RISK/FAIL/ERROR status with full outcome details."
+    ),
+    responses={
+        400: {"model": Error, "description": "Invalid parameters"},
+        404: {"model": Error, "description": "Census not found"},
+        429: {"model": Error, "description": "Rate limit exceeded"},
+    },
+)
+@limiter.limit(RATE_LIMIT)
+async def run_scenario_v2(
+    request: Request,
+    scenario: ScenarioRequestV2,
+) -> ScenarioResultV2:
+    """T027: Run v2 single scenario analysis endpoint."""
+    conn = get_db()
+
+    # T028: Validate census exists
+    census_repo = CensusRepository(conn)
+    census = census_repo.get(scenario.census_id)
+    if census is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Census {scenario.census_id} not found",
+        )
+
+    # Get participants for calculation
+    participant_repo = ParticipantRepository(conn)
+    participants = participant_repo.get_as_calculation_dicts(scenario.census_id)
+
+    # Generate seed if not provided
+    seed = scenario.seed if scenario.seed is not None else int(time.time() * 1000) % (2**31)
+
+    # Run the v2 scenario
+    result = run_single_scenario_v2(
+        participants=participants,
+        adoption_rate=scenario.adoption_rate,
+        contribution_rate=scenario.contribution_rate,
+        seed=seed,
+        include_debug=scenario.include_debug,
+    )
+
+    # Convert to API response schema
+    debug_response = None
+    if result.debug_details:
+        debug_response = DebugDetailsResponse(
+            selected_hce_ids=result.debug_details.selected_hce_ids,
+            hce_contributions=[
+                ParticipantContributionResponse(
+                    id=c.id,
+                    compensation_cents=c.compensation_cents,
+                    existing_acp_contributions_cents=c.existing_acp_contributions_cents,
+                    simulated_mega_backdoor_cents=c.simulated_mega_backdoor_cents,
+                    individual_acp=c.individual_acp,
+                )
+                for c in result.debug_details.hce_contributions
+            ],
+            nhce_contributions=[
+                ParticipantContributionResponse(
+                    id=c.id,
+                    compensation_cents=c.compensation_cents,
+                    existing_acp_contributions_cents=c.existing_acp_contributions_cents,
+                    simulated_mega_backdoor_cents=c.simulated_mega_backdoor_cents,
+                    individual_acp=c.individual_acp,
+                )
+                for c in result.debug_details.nhce_contributions
+            ],
+            intermediate_values=IntermediateValuesResponse(
+                hce_acp_sum=result.debug_details.intermediate_values.hce_acp_sum,
+                hce_count=result.debug_details.intermediate_values.hce_count,
+                nhce_acp_sum=result.debug_details.intermediate_values.nhce_acp_sum,
+                nhce_count=result.debug_details.intermediate_values.nhce_count,
+                threshold_multiple=result.debug_details.intermediate_values.threshold_multiple,
+                threshold_additive=result.debug_details.intermediate_values.threshold_additive,
+            ),
+        )
+
+    return ScenarioResultV2(
+        status=result.status.value,
+        nhce_acp=result.nhce_acp,
+        hce_acp=result.hce_acp,
+        max_allowed_acp=result.max_allowed_acp,
+        margin=result.margin,
+        limiting_bound=result.limiting_bound.value if result.limiting_bound else None,
+        hce_contributor_count=result.hce_contributor_count,
+        nhce_contributor_count=result.nhce_contributor_count,
+        total_mega_backdoor_amount=result.total_mega_backdoor_amount,
+        seed_used=result.seed_used,
+        adoption_rate=result.adoption_rate,
+        contribution_rate=result.contribution_rate,
+        error_message=result.error_message,
+        debug_details=debug_response,
+    )
+
+
+# T035: V2 grid analysis endpoint
+@router.post(
+    "/v2/grid",
+    response_model=GridResultV2,
+    summary="Run grid scenario analysis (v2)",
+    description=(
+        "Run multiple ACP test scenarios across a grid of adoption and contribution rates. "
+        "Returns all scenario results with comprehensive summary statistics."
+    ),
+    responses={
+        400: {"model": Error, "description": "Invalid parameters"},
+        404: {"model": Error, "description": "Census not found"},
+        429: {"model": Error, "description": "Rate limit exceeded"},
+    },
+)
+@limiter.limit(RATE_LIMIT)
+async def run_grid_v2(
+    request: Request,
+    grid_request: GridRequestV2,
+) -> GridResultV2:
+    """T035: Run v2 grid scenario analysis endpoint."""
+    conn = get_db()
+
+    # T036: Validate census exists
+    census_repo = CensusRepository(conn)
+    census = census_repo.get(grid_request.census_id)
+    if census is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Census {grid_request.census_id} not found",
+        )
+
+    # Get participants for calculation
+    participant_repo = ParticipantRepository(conn)
+    participants = participant_repo.get_as_calculation_dicts(grid_request.census_id)
+
+    # Generate seed if not provided
+    seed = grid_request.seed if grid_request.seed is not None else int(time.time() * 1000) % (2**31)
+
+    # Run the v2 grid analysis
+    result = run_grid_scenarios_v2(
+        participants=participants,
+        adoption_rates=grid_request.adoption_rates,
+        contribution_rates=grid_request.contribution_rates,
+        seed=seed,
+        include_debug=grid_request.include_debug,
+    )
+
+    # Convert scenarios to API response format
+    api_scenarios = []
+    for scenario in result.scenarios:
+        debug_response = None
+        if scenario.debug_details:
+            debug_response = DebugDetailsResponse(
+                selected_hce_ids=scenario.debug_details.selected_hce_ids,
+                hce_contributions=[
+                    ParticipantContributionResponse(
+                        id=c.id,
+                        compensation_cents=c.compensation_cents,
+                        existing_acp_contributions_cents=c.existing_acp_contributions_cents,
+                        simulated_mega_backdoor_cents=c.simulated_mega_backdoor_cents,
+                        individual_acp=c.individual_acp,
+                    )
+                    for c in scenario.debug_details.hce_contributions
+                ],
+                nhce_contributions=[
+                    ParticipantContributionResponse(
+                        id=c.id,
+                        compensation_cents=c.compensation_cents,
+                        existing_acp_contributions_cents=c.existing_acp_contributions_cents,
+                        simulated_mega_backdoor_cents=c.simulated_mega_backdoor_cents,
+                        individual_acp=c.individual_acp,
+                    )
+                    for c in scenario.debug_details.nhce_contributions
+                ],
+                intermediate_values=IntermediateValuesResponse(
+                    hce_acp_sum=scenario.debug_details.intermediate_values.hce_acp_sum,
+                    hce_count=scenario.debug_details.intermediate_values.hce_count,
+                    nhce_acp_sum=scenario.debug_details.intermediate_values.nhce_acp_sum,
+                    nhce_count=scenario.debug_details.intermediate_values.nhce_count,
+                    threshold_multiple=scenario.debug_details.intermediate_values.threshold_multiple,
+                    threshold_additive=scenario.debug_details.intermediate_values.threshold_additive,
+                ),
+            )
+
+        api_scenarios.append(ScenarioResultV2(
+            status=scenario.status.value,
+            nhce_acp=scenario.nhce_acp,
+            hce_acp=scenario.hce_acp,
+            max_allowed_acp=scenario.max_allowed_acp,
+            margin=scenario.margin,
+            limiting_bound=scenario.limiting_bound.value if scenario.limiting_bound else None,
+            hce_contributor_count=scenario.hce_contributor_count,
+            nhce_contributor_count=scenario.nhce_contributor_count,
+            total_mega_backdoor_amount=scenario.total_mega_backdoor_amount,
+            seed_used=scenario.seed_used,
+            adoption_rate=scenario.adoption_rate,
+            contribution_rate=scenario.contribution_rate,
+            error_message=scenario.error_message,
+            debug_details=debug_response,
+        ))
+
+    # Convert summary to API response format
+    first_failure_response = None
+    if result.summary.first_failure_point:
+        first_failure_response = FailurePointResponse(
+            adoption_rate=result.summary.first_failure_point.adoption_rate,
+            contribution_rate=result.summary.first_failure_point.contribution_rate,
+        )
+
+    return GridResultV2(
+        scenarios=api_scenarios,
+        summary=GridSummaryV2(
+            pass_count=result.summary.pass_count,
+            risk_count=result.summary.risk_count,
+            fail_count=result.summary.fail_count,
+            error_count=result.summary.error_count,
+            total_count=result.summary.total_count,
+            first_failure_point=first_failure_response,
+            max_safe_contribution=result.summary.max_safe_contribution,
+            worst_margin=result.summary.worst_margin,
+        ),
+        seed_used=result.seed_used,
     )

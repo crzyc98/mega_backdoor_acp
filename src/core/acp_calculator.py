@@ -10,6 +10,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Literal
 
 from src.core.constants import ACP_MULTIPLIER, ACP_ADDER, get_415c_limit
+from src.core.models import LimitingBound
 
 
 @dataclass
@@ -20,7 +21,8 @@ class ACPResult:
     threshold: Decimal
     margin: Decimal
     result: Literal["PASS", "FAIL"]
-    limiting_test: Literal["1.25x", "+2.0"]
+    limiting_test: Literal["1.25x", "+2.0"]  # Legacy field
+    limiting_bound: LimitingBound  # T019: New field with enum
 
 
 def calculate_individual_acp(
@@ -191,12 +193,15 @@ def apply_acp_test(nhce_acp: Decimal, hce_acp: Decimal) -> ACPResult:
     )
 
     # Use the more favorable (higher) threshold
+    # T019: Update to use LimitingBound enum alongside legacy field
     if limit_125x >= limit_plus2:
         threshold = limit_125x
         limiting_test = "1.25x"
+        limiting_bound = LimitingBound.MULTIPLE
     else:
         threshold = limit_plus2
         limiting_test = "+2.0"
+        limiting_bound = LimitingBound.ADDITIVE
 
     # Calculate margin and determine result
     margin = calculate_margin(threshold, hce_acp)
@@ -208,8 +213,38 @@ def apply_acp_test(nhce_acp: Decimal, hce_acp: Decimal) -> ACPResult:
         threshold=threshold,
         margin=margin,
         result=result,
-        limiting_test=limiting_test
+        limiting_test=limiting_test,
+        limiting_bound=limiting_bound
     )
+
+
+# T020: Calculate total mega-backdoor amount across adopting HCEs
+def calculate_total_mega_backdoor(
+    participants: list[dict],
+    adopting_hce_ids: list[str],
+    contribution_rate: Decimal
+) -> int:
+    """
+    Calculate total simulated mega-backdoor contributions in cents.
+
+    Args:
+        participants: List of participant dictionaries
+        adopting_hce_ids: List of internal IDs of HCEs adopting mega-backdoor
+        contribution_rate: Mega-backdoor contribution rate as percentage (0-100)
+
+    Returns:
+        Total mega-backdoor amount in cents
+    """
+    adopting_set = set(adopting_hce_ids)
+    total_cents = 0
+
+    for p in participants:
+        if p.get("is_hce", False) and p.get("internal_id", "") in adopting_set:
+            compensation_cents = p.get("compensation_cents", 0)
+            simulated_cents = int(Decimal(compensation_cents) * contribution_rate / 100)
+            total_cents += simulated_cents
+
+    return total_cents
 
 
 def check_415c_limit(
