@@ -21,11 +21,15 @@ PRAGMA journal_mode=WAL;
 CREATE TABLE IF NOT EXISTS census (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
+    client_name TEXT,
     plan_year INTEGER NOT NULL CHECK (plan_year BETWEEN 2020 AND 2100),
+    hce_mode TEXT NOT NULL DEFAULT 'explicit' CHECK (hce_mode IN ('explicit', 'compensation_threshold')),
     upload_timestamp TEXT NOT NULL DEFAULT (datetime('now')),
     participant_count INTEGER NOT NULL CHECK (participant_count >= 0),
     hce_count INTEGER NOT NULL CHECK (hce_count >= 0),
     nhce_count INTEGER NOT NULL CHECK (nhce_count >= 0),
+    avg_compensation_cents INTEGER,
+    avg_deferral_rate REAL,
     salt TEXT NOT NULL,
     version TEXT NOT NULL,
     CHECK (hce_count + nhce_count = participant_count)
@@ -74,16 +78,155 @@ CREATE TABLE IF NOT EXISTS analysis_result (
     version TEXT NOT NULL
 );
 
+-- Import metadata table: Stores column mapping and import details for each census
+CREATE TABLE IF NOT EXISTS import_metadata (
+    id TEXT PRIMARY KEY,
+    census_id TEXT NOT NULL UNIQUE REFERENCES census(id) ON DELETE CASCADE,
+    source_filename TEXT NOT NULL,
+    column_mapping TEXT NOT NULL,  -- JSON object
+    row_count INTEGER NOT NULL CHECK (row_count >= 0),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Indexes for efficient queries
 CREATE INDEX IF NOT EXISTS idx_census_plan_year ON census(plan_year);
 CREATE INDEX IF NOT EXISTS idx_census_upload ON census(upload_timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_census_client ON census(client_name);
 CREATE INDEX IF NOT EXISTS idx_participant_census ON participant(census_id);
 CREATE INDEX IF NOT EXISTS idx_participant_hce ON participant(census_id, is_hce);
 CREATE INDEX IF NOT EXISTS idx_result_census ON analysis_result(census_id);
 CREATE INDEX IF NOT EXISTS idx_result_grid ON analysis_result(grid_analysis_id);
 CREATE INDEX IF NOT EXISTS idx_result_timestamp ON analysis_result(run_timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_grid_census ON grid_analysis(census_id);
+CREATE INDEX IF NOT EXISTS idx_import_metadata_census ON import_metadata(census_id);
+
+-- ============================================================================
+-- CSV Import Wizard Tables (Feature 003-csv-import-wizard)
+-- ============================================================================
+
+-- Import wizard session state
+CREATE TABLE IF NOT EXISTS import_session (
+    id TEXT PRIMARY KEY,
+    user_id TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    expires_at TEXT NOT NULL,
+    current_step TEXT NOT NULL DEFAULT 'upload'
+        CHECK (current_step IN ('upload', 'map', 'validate', 'preview', 'confirm', 'completed')),
+    file_reference TEXT,
+    original_filename TEXT,
+    file_size_bytes INTEGER,
+    row_count INTEGER,
+    headers TEXT,  -- JSON array
+    column_mapping TEXT,  -- JSON object
+    validation_results TEXT,  -- JSON object
+    duplicate_resolution TEXT,  -- JSON object
+    import_result_id TEXT REFERENCES import_log(id)
+);
+
+-- Saved column mapping profiles
+CREATE TABLE IF NOT EXISTS mapping_profile (
+    id TEXT PRIMARY KEY,
+    user_id TEXT,
+    name TEXT NOT NULL,
+    description TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    column_mapping TEXT NOT NULL,  -- JSON object
+    expected_headers TEXT,  -- JSON array
+    UNIQUE (user_id, name)
+);
+
+-- Validation issues (denormalized for query performance)
+CREATE TABLE IF NOT EXISTS validation_issue (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES import_session(id) ON DELETE CASCADE,
+    row_number INTEGER NOT NULL CHECK (row_number > 0),
+    field_name TEXT NOT NULL,
+    source_column TEXT,
+    severity TEXT NOT NULL CHECK (severity IN ('error', 'warning', 'info')),
+    issue_code TEXT NOT NULL,
+    message TEXT NOT NULL,
+    suggestion TEXT,
+    raw_value TEXT,
+    related_row INTEGER
+);
+
+-- Import logs with indefinite retention
+CREATE TABLE IF NOT EXISTS import_log (
+    id TEXT PRIMARY KEY,
+    session_id TEXT REFERENCES import_session(id),
+    census_id TEXT REFERENCES census(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    completed_at TEXT,
+    original_filename TEXT NOT NULL,
+    total_rows INTEGER NOT NULL,
+    imported_count INTEGER NOT NULL DEFAULT 0,
+    rejected_count INTEGER NOT NULL DEFAULT 0,
+    warning_count INTEGER NOT NULL DEFAULT 0,
+    replaced_count INTEGER NOT NULL DEFAULT 0,
+    skipped_count INTEGER NOT NULL DEFAULT 0,
+    column_mapping_used TEXT NOT NULL,  -- JSON object
+    detailed_results TEXT,  -- JSON array
+    deleted_at TEXT  -- soft delete
+);
+
+-- Wizard indexes
+CREATE INDEX IF NOT EXISTS idx_import_session_expires ON import_session(expires_at);
+CREATE INDEX IF NOT EXISTS idx_import_session_user ON import_session(user_id);
+CREATE INDEX IF NOT EXISTS idx_mapping_profile_user ON mapping_profile(user_id);
+CREATE INDEX IF NOT EXISTS idx_validation_issue_session ON validation_issue(session_id);
+CREATE INDEX IF NOT EXISTS idx_validation_issue_severity ON validation_issue(session_id, severity);
+CREATE INDEX IF NOT EXISTS idx_import_log_census ON import_log(census_id);
+CREATE INDEX IF NOT EXISTS idx_import_log_created ON import_log(created_at DESC);
 """
+
+# Additional SQL for extending participant table with wizard fields
+PARTICIPANT_EXTENSION_SQL = """
+-- Add new columns for census import wizard (if not exist)
+-- Note: SQLite doesn't support IF NOT EXISTS for ALTER TABLE,
+-- so we check programmatically before adding columns
+"""
+
+
+def _add_column_if_not_exists(conn, table: str, column: str, col_type: str, default: str | None = None) -> None:
+    """Add a column to a table if it doesn't already exist."""
+    cursor = conn.execute(f"PRAGMA table_info({table})")
+    columns = [row[1] for row in cursor.fetchall()]
+    if column not in columns:
+        default_clause = f" DEFAULT {default}" if default is not None else ""
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}{default_clause}")
+
+
+def extend_participant_table(conn) -> None:
+    """
+    Extend the participant table with additional fields for the import wizard.
+
+    New fields:
+    - ssn_hash: Hashed SSN for duplicate detection
+    - dob: Date of birth
+    - hire_date: Hire date
+    - employee_pre_tax_cents: Employee pre-tax contribution amount
+    - employee_after_tax_cents: Employee after-tax contribution amount
+    - employee_roth_cents: Employee Roth contribution amount
+    - employer_match_cents: Employer match contribution amount
+    - employer_non_elective_cents: Employer non-elective contribution amount
+    """
+    _add_column_if_not_exists(conn, "participant", "ssn_hash", "TEXT")
+    _add_column_if_not_exists(conn, "participant", "dob", "TEXT")
+    _add_column_if_not_exists(conn, "participant", "hire_date", "TEXT")
+    _add_column_if_not_exists(conn, "participant", "employee_pre_tax_cents", "INTEGER", "0")
+    _add_column_if_not_exists(conn, "participant", "employee_after_tax_cents", "INTEGER", "0")
+    _add_column_if_not_exists(conn, "participant", "employee_roth_cents", "INTEGER", "0")
+    _add_column_if_not_exists(conn, "participant", "employer_match_cents", "INTEGER", "0")
+    _add_column_if_not_exists(conn, "participant", "employer_non_elective_cents", "INTEGER", "0")
+
+    # Add index for SSN hash duplicate detection
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_participant_ssn_hash
+        ON participant(ssn_hash)
+    """)
+    conn.commit()
 
 
 def get_database_path() -> Path:
@@ -135,6 +278,8 @@ def init_database(db_path: Path | None = None) -> None:
     try:
         conn.executescript(SCHEMA_SQL)
         conn.commit()
+        # Extend participant table with wizard fields
+        extend_participant_table(conn)
     finally:
         conn.close()
 

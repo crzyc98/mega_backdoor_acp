@@ -1,0 +1,590 @@
+openapi: 3.1.0
+info:
+  title: Census Management API
+  version: 2.0.0
+  description: |
+    Census Management API for ACP Sensitivity Analyzer.
+    Provides CRUD operations for census data with column mapping,
+    HCE determination modes, and import metadata.
+
+servers:
+  - url: /api/v1
+    description: API v1
+
+paths:
+  /census:
+    post:
+      operationId: uploadCensus
+      summary: Upload a new census
+      description: |
+        Upload participant census data in CSV format. Supports column mapping
+        and dual HCE determination modes (explicit flag or compensation threshold).
+      tags:
+        - Census
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+                - plan_year
+                - name
+                - hce_mode
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: CSV file with participant data
+                name:
+                  type: string
+                  maxLength: 255
+                  description: Census name (required)
+                client_name:
+                  type: string
+                  maxLength: 255
+                  description: Optional client/organization name
+                plan_year:
+                  type: integer
+                  minimum: 2020
+                  maximum: 2100
+                  description: Plan year for HCE threshold lookup
+                hce_mode:
+                  type: string
+                  enum: [explicit, compensation_threshold]
+                  description: HCE determination method
+                column_mapping:
+                  type: string
+                  description: JSON object mapping source columns to target fields
+      responses:
+        '201':
+          description: Census created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Census'
+        '400':
+          description: Invalid census data or validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    get:
+      operationId: listCensuses
+      summary: List all censuses
+      description: Retrieve a paginated list of all uploaded censuses
+      tags:
+        - Census
+      parameters:
+        - name: plan_year
+          in: query
+          schema:
+            type: integer
+          description: Filter by plan year
+        - name: client_name
+          in: query
+          schema:
+            type: string
+          description: Filter by client name (partial match)
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 100
+          description: Maximum results to return
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+          description: Pagination offset
+      responses:
+        '200':
+          description: List of censuses
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CensusListResponse'
+
+  /census/{census_id}:
+    get:
+      operationId: getCensus
+      summary: Get census details
+      description: Retrieve full details for a specific census including import metadata
+      tags:
+        - Census
+      parameters:
+        - $ref: '#/components/parameters/CensusId'
+      responses:
+        '200':
+          description: Census details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CensusDetail'
+        '404':
+          description: Census not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    patch:
+      operationId: updateCensus
+      summary: Update census metadata
+      description: |
+        Update editable census metadata (name, client_name only).
+        Participant data and plan_year are immutable.
+      tags:
+        - Census
+      parameters:
+        - $ref: '#/components/parameters/CensusId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CensusUpdateRequest'
+      responses:
+        '200':
+          description: Census updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Census'
+        '400':
+          description: Invalid update request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Census not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      operationId: deleteCensus
+      summary: Delete a census
+      description: |
+        Delete a census and all associated data (participants, metadata, analyses).
+        Returns warning header if associated analyses exist.
+      tags:
+        - Census
+      parameters:
+        - $ref: '#/components/parameters/CensusId'
+      responses:
+        '204':
+          description: Census deleted successfully
+          headers:
+            X-Warning:
+              schema:
+                type: string
+              description: Warning if associated analyses were deleted
+        '404':
+          description: Census not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /census/{census_id}/participants:
+    get:
+      operationId: getCensusParticipants
+      summary: Get census participants
+      description: Retrieve participant records for a census (paginated)
+      tags:
+        - Census
+      parameters:
+        - $ref: '#/components/parameters/CensusId'
+        - name: hce_only
+          in: query
+          schema:
+            type: boolean
+          description: Filter to HCE participants only
+        - name: nhce_only
+          in: query
+          schema:
+            type: boolean
+          description: Filter to NHCE participants only
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+            maximum: 1000
+          description: Maximum results to return
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+          description: Pagination offset
+      responses:
+        '200':
+          description: List of participants
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParticipantListResponse'
+        '404':
+          description: Census not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /census/{census_id}/metadata:
+    get:
+      operationId: getCensusMetadata
+      summary: Get import metadata
+      description: Retrieve import metadata including column mapping
+      tags:
+        - Census
+      parameters:
+        - $ref: '#/components/parameters/CensusId'
+      responses:
+        '200':
+          description: Import metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportMetadata'
+        '404':
+          description: Census or metadata not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /census/column-mapping/detect:
+    post:
+      operationId: detectColumnMapping
+      summary: Detect column mapping from CSV headers
+      description: |
+        Upload CSV to detect columns and suggest mapping to required fields.
+        Does not create a census - use for preview/mapping UI.
+      tags:
+        - Census
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: CSV file to analyze
+      responses:
+        '200':
+          description: Column detection results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ColumnMappingDetection'
+        '400':
+          description: Invalid CSV file
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /hce-thresholds:
+    get:
+      operationId: getHCEThresholds
+      summary: Get HCE compensation thresholds
+      description: Retrieve historical IRS HCE compensation thresholds by year
+      tags:
+        - Reference Data
+      responses:
+        '200':
+          description: HCE thresholds by year
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HCEThresholds'
+
+components:
+  parameters:
+    CensusId:
+      name: census_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Census unique identifier
+
+  schemas:
+    Census:
+      type: object
+      required:
+        - id
+        - name
+        - plan_year
+        - hce_mode
+        - upload_timestamp
+        - participant_count
+        - hce_count
+        - nhce_count
+        - version
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        client_name:
+          type: string
+          nullable: true
+        plan_year:
+          type: integer
+        hce_mode:
+          type: string
+          enum: [explicit, compensation_threshold]
+        upload_timestamp:
+          type: string
+          format: date-time
+        participant_count:
+          type: integer
+        hce_count:
+          type: integer
+        nhce_count:
+          type: integer
+        avg_compensation:
+          type: number
+          nullable: true
+          description: Average compensation in dollars
+        avg_deferral_rate:
+          type: number
+          nullable: true
+          description: Average deferral rate (0-100)
+        version:
+          type: string
+
+    CensusDetail:
+      allOf:
+        - $ref: '#/components/schemas/Census'
+        - type: object
+          properties:
+            import_metadata:
+              $ref: '#/components/schemas/ImportMetadata'
+            has_analyses:
+              type: boolean
+              description: Whether census has associated analyses
+
+    CensusSummary:
+      type: object
+      required:
+        - id
+        - name
+        - plan_year
+        - participant_count
+        - hce_count
+        - nhce_count
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        client_name:
+          type: string
+          nullable: true
+        plan_year:
+          type: integer
+        participant_count:
+          type: integer
+        hce_count:
+          type: integer
+        nhce_count:
+          type: integer
+        upload_timestamp:
+          type: string
+          format: date-time
+
+    CensusListResponse:
+      type: object
+      required:
+        - items
+        - total
+        - limit
+        - offset
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CensusSummary'
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    CensusUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 255
+        client_name:
+          type: string
+          maxLength: 255
+          nullable: true
+
+    Participant:
+      type: object
+      required:
+        - id
+        - internal_id
+        - is_hce
+        - compensation
+        - deferral_rate
+      properties:
+        id:
+          type: string
+          format: uuid
+        internal_id:
+          type: string
+          description: Hashed employee identifier
+        is_hce:
+          type: boolean
+        compensation:
+          type: number
+          description: Annual compensation in dollars
+        deferral_rate:
+          type: number
+        match_rate:
+          type: number
+        after_tax_rate:
+          type: number
+
+    ParticipantListResponse:
+      type: object
+      required:
+        - items
+        - total
+        - limit
+        - offset
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Participant'
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    ImportMetadata:
+      type: object
+      required:
+        - id
+        - census_id
+        - source_filename
+        - column_mapping
+        - row_count
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        census_id:
+          type: string
+          format: uuid
+        source_filename:
+          type: string
+        column_mapping:
+          type: object
+          additionalProperties:
+            type: string
+          description: Map of target field to source column name
+        row_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
+    ColumnMappingDetection:
+      type: object
+      required:
+        - source_columns
+        - suggested_mapping
+        - required_fields
+        - missing_fields
+      properties:
+        source_columns:
+          type: array
+          items:
+            type: string
+          description: Column headers found in CSV
+        suggested_mapping:
+          type: object
+          additionalProperties:
+            type: string
+          description: Auto-detected mapping (target_field → source_column)
+        required_fields:
+          type: array
+          items:
+            type: string
+          description: Fields that must be mapped
+        missing_fields:
+          type: array
+          items:
+            type: string
+          description: Required fields not auto-detected
+
+    HCEThresholds:
+      type: object
+      additionalProperties:
+        type: integer
+      example:
+        "2024": 155000
+        "2025": 160000
+
+    Error:
+      type: object
+      required:
+        - detail
+      properties:
+        detail:
+          type: string
+
+    ValidationError:
+      type: object
+      required:
+        - detail
+        - errors
+      properties:
+        detail:
+          type: string
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+              row:
+                type: integer
+                nullable: true
