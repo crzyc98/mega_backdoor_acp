@@ -240,6 +240,122 @@ class HealthResponse(BaseModel):
 
 
 # ============================================================================
+# Enhanced Scenario Analysis Schemas (Feature 004-scenario-analysis)
+# ============================================================================
+
+# T026: API schemas for v2 scenario analysis
+
+class ScenarioRequestV2(BaseModel):
+    """Request model for v2 single scenario analysis."""
+    census_id: str = Field(..., description="Reference to loaded census data")
+    adoption_rate: float = Field(
+        ..., ge=0.0, le=1.0,
+        description="Fraction of HCEs participating in mega-backdoor (0.0 to 1.0)"
+    )
+    contribution_rate: float = Field(
+        ..., ge=0.0, le=1.0,
+        description="Mega-backdoor contribution as fraction of compensation (0.0 to 1.0)"
+    )
+    seed: int | None = Field(
+        None, ge=1,
+        description="Random seed for HCE selection (auto-generated if omitted)"
+    )
+    include_debug: bool = Field(
+        False, description="Include detailed calculation breakdown"
+    )
+
+
+class ParticipantContributionResponse(BaseModel):
+    """Per-participant contribution breakdown."""
+    id: str
+    compensation_cents: int
+    existing_acp_contributions_cents: int
+    simulated_mega_backdoor_cents: int
+    individual_acp: float
+
+
+class IntermediateValuesResponse(BaseModel):
+    """Calculation intermediate values."""
+    hce_acp_sum: float
+    hce_count: int
+    nhce_acp_sum: float
+    nhce_count: int
+    threshold_multiple: float
+    threshold_additive: float
+
+
+class DebugDetailsResponse(BaseModel):
+    """Debug details for audit/debugging."""
+    selected_hce_ids: list[str]
+    hce_contributions: list[ParticipantContributionResponse]
+    nhce_contributions: list[ParticipantContributionResponse]
+    intermediate_values: IntermediateValuesResponse
+
+
+class ScenarioResultV2(BaseModel):
+    """Response model for v2 single scenario analysis."""
+    status: Literal["PASS", "RISK", "FAIL", "ERROR"]
+    nhce_acp: float | None = None
+    hce_acp: float | None = None
+    max_allowed_acp: float | None = None
+    margin: float | None = None
+    limiting_bound: Literal["MULTIPLE", "ADDITIVE"] | None = None
+    hce_contributor_count: int | None = None
+    nhce_contributor_count: int | None = None
+    total_mega_backdoor_amount: float | None = None
+    seed_used: int
+    adoption_rate: float
+    contribution_rate: float
+    error_message: str | None = None
+    debug_details: DebugDetailsResponse | None = None
+
+
+class FailurePointResponse(BaseModel):
+    """Coordinates of a failure in the grid."""
+    adoption_rate: float
+    contribution_rate: float
+
+
+class GridSummaryV2(BaseModel):
+    """Summary statistics for v2 grid analysis."""
+    pass_count: int
+    risk_count: int
+    fail_count: int
+    error_count: int
+    total_count: int
+    first_failure_point: FailurePointResponse | None = None
+    max_safe_contribution: float | None = None
+    worst_margin: float
+
+
+class GridRequestV2(BaseModel):
+    """Request model for v2 grid scenario analysis."""
+    census_id: str = Field(..., description="Reference to loaded census data")
+    adoption_rates: list[float] = Field(
+        ..., min_length=2, max_length=20,
+        description="List of adoption rates to test (each 0.0 to 1.0)"
+    )
+    contribution_rates: list[float] = Field(
+        ..., min_length=2, max_length=20,
+        description="List of contribution rates to test (each 0.0 to 1.0)"
+    )
+    seed: int | None = Field(
+        None, ge=1,
+        description="Base seed for all scenarios"
+    )
+    include_debug: bool = Field(
+        False, description="Include debug details in each scenario result"
+    )
+
+
+class GridResultV2(BaseModel):
+    """Response model for v2 grid analysis."""
+    scenarios: list[ScenarioResultV2]
+    summary: GridSummaryV2
+    seed_used: int
+
+
+# ============================================================================
 # CSV Import Wizard Schemas (Feature 003-csv-import-wizard)
 # ============================================================================
 

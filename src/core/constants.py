@@ -18,6 +18,16 @@ SYSTEM_VERSION = "1.0.0"
 ACP_MULTIPLIER = Decimal("1.25")  # Factor applied to NHCE ACP
 ACP_ADDER = Decimal("2.0")  # Percentage points added to NHCE ACP
 
+# T001: RISK threshold - margin below which a passing result is classified as RISK
+# 0.50 percentage points represents a fragile buffer that could be eroded by
+# late-year adjustments, compensation corrections, or HCE reclassification
+RISK_THRESHOLD = Decimal("0.50")
+
+# T053: Error message constants for edge cases
+ERROR_NO_HCES = "ACP test not applicable: no HCE participants in census"
+ERROR_NO_NHCES = "ACP test cannot be calculated: no NHCE participants (NHCE ACP undefined)"
+ERROR_EMPTY_CENSUS = "ACP test cannot be calculated: census is empty"
+
 # Default configuration
 DEFAULT_PLAN_YEAR = 2025
 DEFAULT_RANDOM_SEED = 42

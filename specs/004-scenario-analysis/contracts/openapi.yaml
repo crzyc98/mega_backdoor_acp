@@ -1,0 +1,498 @@
+openapi: 3.1.0
+info:
+  title: ACP Scenario Analysis API
+  description: |
+    API for running ACP (Actual Contribution Percentage) scenario analysis.
+    Supports single scenario execution with full outcome details and grid
+    analysis with summary statistics.
+  version: 2.0.0
+  contact:
+    name: ACP Analyzer Team
+
+servers:
+  - url: /api/v2
+    description: Version 2 API with enhanced scenario analysis
+
+paths:
+  /analysis/scenario:
+    post:
+      operationId: runSingleScenario
+      summary: Run a single ACP test scenario
+      description: |
+        Executes a single scenario with specified adoption rate and contribution rate.
+        Returns comprehensive ACP outcome details including PASS/FAIL/RISK/ERROR status,
+        margin, limiting bound, contributor counts, and total mega-backdoor amount.
+      tags:
+        - Analysis
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScenarioRequest'
+            examples:
+              basic:
+                summary: Basic scenario
+                value:
+                  census_id: "550e8400-e29b-41d4-a716-446655440000"
+                  adoption_rate: 0.5
+                  contribution_rate: 0.06
+              with_seed:
+                summary: With explicit seed for reproducibility
+                value:
+                  census_id: "550e8400-e29b-41d4-a716-446655440000"
+                  adoption_rate: 0.75
+                  contribution_rate: 0.08
+                  seed: 42
+              with_debug:
+                summary: With debug details
+                value:
+                  census_id: "550e8400-e29b-41d4-a716-446655440000"
+                  adoption_rate: 0.5
+                  contribution_rate: 0.06
+                  include_debug: true
+      responses:
+        '200':
+          description: Scenario executed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScenarioResult'
+              examples:
+                pass:
+                  summary: Passing scenario
+                  value:
+                    status: "PASS"
+                    nhce_acp: 0.035
+                    hce_acp: 0.042
+                    max_allowed_acp: 0.04375
+                    margin: 0.00175
+                    limiting_bound: "MULTIPLE"
+                    hce_contributor_count: 25
+                    nhce_contributor_count: 180
+                    total_mega_backdoor_amount: 375000.00
+                    seed_used: 42
+                    adoption_rate: 0.5
+                    contribution_rate: 0.06
+                    error_message: null
+                    debug_details: null
+                risk:
+                  summary: Risk scenario (near threshold)
+                  value:
+                    status: "RISK"
+                    nhce_acp: 0.035
+                    hce_acp: 0.0432
+                    max_allowed_acp: 0.04375
+                    margin: 0.00055
+                    limiting_bound: "MULTIPLE"
+                    hce_contributor_count: 35
+                    nhce_contributor_count: 180
+                    total_mega_backdoor_amount: 525000.00
+                    seed_used: 42
+                    adoption_rate: 0.7
+                    contribution_rate: 0.08
+                    error_message: null
+                    debug_details: null
+                error:
+                  summary: Error scenario (no HCEs)
+                  value:
+                    status: "ERROR"
+                    nhce_acp: null
+                    hce_acp: null
+                    max_allowed_acp: null
+                    margin: null
+                    limiting_bound: null
+                    hce_contributor_count: null
+                    nhce_contributor_count: null
+                    total_mega_backdoor_amount: null
+                    seed_used: 42
+                    adoption_rate: 0.5
+                    contribution_rate: 0.06
+                    error_message: "ACP test not applicable: no HCE participants in census"
+                    debug_details: null
+        '400':
+          description: Invalid request parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Census not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /analysis/grid:
+    post:
+      operationId: runGridAnalysis
+      summary: Run a grid of ACP test scenarios
+      description: |
+        Executes scenarios across all combinations of adoption rates and contribution rates.
+        Returns individual results plus a compact summary with pass/fail/risk counts,
+        first failure point, max safe contribution, and worst margin.
+      tags:
+        - Analysis
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GridRequest'
+            examples:
+              standard:
+                summary: Standard 5x5 grid
+                value:
+                  census_id: "550e8400-e29b-41d4-a716-446655440000"
+                  adoption_rates: [0.25, 0.5, 0.75, 0.9, 1.0]
+                  contribution_rates: [0.02, 0.04, 0.06, 0.08, 0.10]
+                  seed: 12345
+      responses:
+        '200':
+          description: Grid analysis completed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GridResult'
+        '400':
+          description: Invalid request parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Census not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    ScenarioRequest:
+      type: object
+      required:
+        - census_id
+        - adoption_rate
+        - contribution_rate
+      properties:
+        census_id:
+          type: string
+          format: uuid
+          description: Reference to loaded census data
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        adoption_rate:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+          description: Fraction of HCEs participating in mega-backdoor (0.0 to 1.0)
+          example: 0.5
+        contribution_rate:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+          description: Mega-backdoor contribution as fraction of compensation (0.0 to 1.0)
+          example: 0.06
+        seed:
+          type: integer
+          minimum: 1
+          description: Random seed for HCE selection reproducibility
+          example: 42
+        include_debug:
+          type: boolean
+          default: false
+          description: Include detailed calculation breakdown in response
+
+    GridRequest:
+      type: object
+      required:
+        - census_id
+        - adoption_rates
+        - contribution_rates
+      properties:
+        census_id:
+          type: string
+          format: uuid
+          description: Reference to loaded census data
+        adoption_rates:
+          type: array
+          items:
+            type: number
+            format: float
+            minimum: 0.0
+            maximum: 1.0
+          minItems: 2
+          maxItems: 20
+          description: List of adoption rates to test
+          example: [0.25, 0.5, 0.75, 1.0]
+        contribution_rates:
+          type: array
+          items:
+            type: number
+            format: float
+            minimum: 0.0
+            maximum: 1.0
+          minItems: 2
+          maxItems: 20
+          description: List of contribution rates to test
+          example: [0.04, 0.06, 0.08, 0.10]
+        seed:
+          type: integer
+          minimum: 1
+          description: Base seed for all scenarios
+        include_debug:
+          type: boolean
+          default: false
+          description: Include debug details in each scenario result
+
+    ScenarioResult:
+      type: object
+      required:
+        - status
+        - seed_used
+        - adoption_rate
+        - contribution_rate
+      properties:
+        status:
+          $ref: '#/components/schemas/ScenarioStatus'
+        nhce_acp:
+          type: number
+          format: float
+          nullable: true
+          description: NHCE Actual Contribution Percentage (null if ERROR)
+        hce_acp:
+          type: number
+          format: float
+          nullable: true
+          description: HCE Actual Contribution Percentage (null if ERROR)
+        max_allowed_acp:
+          type: number
+          format: float
+          nullable: true
+          description: Threshold value HCE ACP must not exceed (null if ERROR)
+        margin:
+          type: number
+          format: float
+          nullable: true
+          description: Distance from threshold; positive=passing, negative=failing (null if ERROR)
+        limiting_bound:
+          $ref: '#/components/schemas/LimitingBound'
+        hce_contributor_count:
+          type: integer
+          nullable: true
+          description: Number of HCEs receiving simulated mega-backdoor (null if ERROR)
+        nhce_contributor_count:
+          type: integer
+          nullable: true
+          description: Number of NHCEs with qualifying contributions (null if ERROR)
+        total_mega_backdoor_amount:
+          type: number
+          format: float
+          nullable: true
+          description: Sum of simulated contributions in dollars (null if ERROR)
+        seed_used:
+          type: integer
+          description: Actual random seed applied for HCE selection
+        adoption_rate:
+          type: number
+          format: float
+          description: Echo of input adoption rate
+        contribution_rate:
+          type: number
+          format: float
+          description: Echo of input contribution rate
+        error_message:
+          type: string
+          nullable: true
+          description: Description of error; null if status != ERROR
+        debug_details:
+          $ref: '#/components/schemas/DebugDetails'
+
+    ScenarioStatus:
+      type: string
+      enum:
+        - PASS
+        - RISK
+        - FAIL
+        - ERROR
+      description: |
+        - PASS: HCE ACP ≤ threshold AND margin > 0.50 percentage points
+        - RISK: HCE ACP ≤ threshold AND margin ≤ 0.50 percentage points
+        - FAIL: HCE ACP > threshold
+        - ERROR: Calculation not possible due to edge case
+
+    LimitingBound:
+      type: string
+      enum:
+        - MULTIPLE
+        - ADDITIVE
+      nullable: true
+      description: |
+        - MULTIPLE: 1.25× test is more restrictive
+        - ADDITIVE: +2.0 test is more restrictive
+
+    DebugDetails:
+      type: object
+      nullable: true
+      description: Detailed calculation breakdown; present only when include_debug=true
+      properties:
+        selected_hce_ids:
+          type: array
+          items:
+            type: string
+          description: IDs of HCEs selected for mega-backdoor contributions
+        hce_contributions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ParticipantContribution'
+        nhce_contributions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ParticipantContribution'
+        intermediate_values:
+          $ref: '#/components/schemas/IntermediateValues'
+
+    ParticipantContribution:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Participant internal ID
+        compensation_cents:
+          type: integer
+          description: Annual compensation in cents
+        existing_acp_contributions_cents:
+          type: integer
+          description: Match + after-tax contributions in cents
+        simulated_mega_backdoor_cents:
+          type: integer
+          description: Simulated contribution in cents (0 for non-adopters)
+        individual_acp:
+          type: number
+          format: float
+          description: This participant's ACP percentage
+
+    IntermediateValues:
+      type: object
+      properties:
+        hce_acp_sum:
+          type: number
+          format: float
+          description: Sum of individual HCE ACPs before averaging
+        hce_count:
+          type: integer
+          description: Number of HCEs in calculation
+        nhce_acp_sum:
+          type: number
+          format: float
+          description: Sum of individual NHCE ACPs before averaging
+        nhce_count:
+          type: integer
+          description: Number of NHCEs in calculation
+        threshold_multiple:
+          type: number
+          format: float
+          description: NHCE ACP × 1.25
+        threshold_additive:
+          type: number
+          format: float
+          description: NHCE ACP + 2.0 (capped at 2× NHCE ACP)
+
+    GridResult:
+      type: object
+      required:
+        - scenarios
+        - summary
+        - seed_used
+      properties:
+        scenarios:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScenarioResult'
+          description: All scenario results (one per grid cell)
+        summary:
+          $ref: '#/components/schemas/GridSummary'
+        seed_used:
+          type: integer
+          description: Base seed used for all scenarios
+
+    GridSummary:
+      type: object
+      required:
+        - pass_count
+        - risk_count
+        - fail_count
+        - error_count
+        - total_count
+        - worst_margin
+      properties:
+        pass_count:
+          type: integer
+          minimum: 0
+          description: Number of scenarios with PASS status
+        risk_count:
+          type: integer
+          minimum: 0
+          description: Number of scenarios with RISK status
+        fail_count:
+          type: integer
+          minimum: 0
+          description: Number of scenarios with FAIL status
+        error_count:
+          type: integer
+          minimum: 0
+          description: Number of scenarios with ERROR status
+        total_count:
+          type: integer
+          minimum: 1
+          description: Total scenarios in grid
+        first_failure_point:
+          $ref: '#/components/schemas/FailurePoint'
+        max_safe_contribution:
+          type: number
+          format: float
+          nullable: true
+          description: Highest passing contribution at max adoption; null if none pass
+        worst_margin:
+          type: number
+          format: float
+          description: Smallest margin value across all scenarios
+
+    FailurePoint:
+      type: object
+      nullable: true
+      description: Coordinates of first failure in grid; null if no failures
+      properties:
+        adoption_rate:
+          type: number
+          format: float
+          description: Adoption rate where failure occurred
+        contribution_rate:
+          type: number
+          format: float
+          description: Contribution rate where failure occurred
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Error code
+          example: "VALIDATION_ERROR"
+        message:
+          type: string
+          description: Human-readable error message
+          example: "adoption_rate must be between 0.0 and 1.0"
+        details:
+          type: object
+          additionalProperties: true
+          description: Additional error context
+
+tags:
+  - name: Analysis
+    description: ACP scenario analysis operations
