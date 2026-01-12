@@ -2,14 +2,16 @@
 Census CSV Parser with PII Stripping.
 
 This module handles parsing of census CSV files, detecting and stripping PII columns,
-and validating the census data structure.
+and validating the census data structure. Supports column mapping and HCE determination modes.
 """
 
 import hashlib
 import secrets
-from typing import TextIO
+from typing import Literal, TextIO
 
 import pandas as pd
+
+from src.core.hce_thresholds import get_threshold_for_year, HCEMode
 
 
 class CensusValidationError(Exception):
@@ -17,7 +19,26 @@ class CensusValidationError(Exception):
     pass
 
 
-# Required columns for census data
+# Target fields for census data
+TARGET_FIELDS = {
+    "employee_id": "Employee ID",
+    "is_hce": "HCE Status",
+    "compensation": "Annual Compensation",
+    "deferral_rate": "Current Deferral Rate",
+    "match_rate": "Current Match Rate",
+    "after_tax_rate": "Current After-Tax Rate",
+}
+
+# Required fields (must be present for import)
+REQUIRED_FIELDS = ["employee_id", "compensation", "deferral_rate"]
+
+# Fields required only in explicit HCE mode
+EXPLICIT_HCE_REQUIRED = ["is_hce"]
+
+# Optional fields
+OPTIONAL_FIELDS = ["match_rate", "after_tax_rate"]
+
+# Default column mapping (for backwards compatibility)
 REQUIRED_COLUMNS = {
     "Employee ID": "employee_id",
     "HCE Status": "is_hce",
@@ -88,6 +109,74 @@ def detect_pii_columns(columns: list[str]) -> list[str]:
                 pii_columns.append(col)
                 break
     return pii_columns
+
+
+def detect_column_mapping(
+    columns: list[str],
+    hce_mode: HCEMode = "explicit",
+) -> dict:
+    """
+    Detect column mapping from CSV headers.
+
+    Auto-detects which source columns map to required target fields
+    based on common naming patterns.
+
+    Args:
+        columns: List of column names from CSV
+        hce_mode: HCE determination mode (affects required fields)
+
+    Returns:
+        Dictionary with:
+        - source_columns: List of all source columns
+        - suggested_mapping: Dict mapping target_field -> source_column
+        - required_fields: List of required target fields
+        - missing_fields: List of required fields not auto-detected
+    """
+    # Common column name patterns for each target field
+    COLUMN_PATTERNS = {
+        "employee_id": ["employee id", "emp id", "employee_id", "empid", "id", "employee"],
+        "compensation": ["compensation", "salary", "annual compensation", "annual salary", "pay", "wages"],
+        "deferral_rate": ["deferral rate", "deferral", "deferral_rate", "401k rate", "contribution rate"],
+        "is_hce": ["hce", "hce status", "hce_status", "highly compensated", "is_hce"],
+        "match_rate": ["match rate", "match", "match_rate", "employer match"],
+        "after_tax_rate": ["after tax", "after_tax", "after-tax", "after tax rate", "after_tax_rate"],
+    }
+
+    suggested_mapping = {}
+    columns_lower = {col.lower().replace("_", " ").replace("-", " "): col for col in columns}
+
+    # Try to match each target field
+    for target_field, patterns in COLUMN_PATTERNS.items():
+        for pattern in patterns:
+            # Check exact match first
+            if pattern in columns_lower:
+                suggested_mapping[target_field] = columns_lower[pattern]
+                break
+            # Check partial match
+            for col_lower, col_original in columns_lower.items():
+                if pattern in col_lower and target_field not in suggested_mapping:
+                    suggested_mapping[target_field] = col_original
+                    break
+        # Also check for exact original column names
+        for col in columns:
+            if col in REQUIRED_COLUMNS and REQUIRED_COLUMNS[col] == target_field:
+                suggested_mapping[target_field] = col
+                break
+
+    # Determine required fields based on HCE mode
+    required_fields = REQUIRED_FIELDS.copy()
+    if hce_mode == "explicit":
+        required_fields.extend(EXPLICIT_HCE_REQUIRED)
+
+    # Find missing fields
+    missing_fields = [f for f in required_fields if f not in suggested_mapping]
+
+    return {
+        "source_columns": columns,
+        "suggested_mapping": suggested_mapping,
+        "required_fields": required_fields,
+        "missing_fields": missing_fields,
+    }
 
 
 def parse_census_csv(file: TextIO) -> pd.DataFrame:
@@ -217,10 +306,104 @@ def validate_census_data(df: pd.DataFrame) -> pd.DataFrame:
 
 def process_census(
     file: TextIO,
-    census_salt: str | None = None
-) -> tuple[pd.DataFrame, str]:
+    census_salt: str | None = None,
+    hce_mode: HCEMode = "explicit",
+    plan_year: int | None = None,
+    column_mapping: dict[str, str] | None = None,
+) -> tuple[pd.DataFrame, str, dict[str, str]]:
     """
     Complete census processing: parse, validate, and hash IDs.
+
+    Args:
+        file: File-like object containing CSV data
+        census_salt: Optional salt for ID hashing (generated if not provided)
+        hce_mode: HCE determination mode ('explicit' or 'compensation_threshold')
+        plan_year: Plan year (required for compensation_threshold mode)
+        column_mapping: Optional custom column mapping (target_field -> source_column)
+
+    Returns:
+        Tuple of (processed DataFrame with internal IDs, census salt, column mapping used)
+
+    Raises:
+        CensusValidationError: If parsing or validation fails
+    """
+    # Generate salt if not provided
+    if census_salt is None:
+        census_salt = generate_census_salt()
+
+    # Read CSV into DataFrame
+    df = pd.read_csv(file)
+
+    # Get column mapping (auto-detect if not provided)
+    if column_mapping is None:
+        detection = detect_column_mapping(list(df.columns), hce_mode)
+        column_mapping = detection["suggested_mapping"]
+        missing_fields = detection["missing_fields"]
+    else:
+        # Validate provided mapping has required fields
+        required_fields = REQUIRED_FIELDS.copy()
+        if hce_mode == "explicit":
+            required_fields.extend(EXPLICIT_HCE_REQUIRED)
+        missing_fields = [f for f in required_fields if f not in column_mapping]
+
+    if missing_fields:
+        raise CensusValidationError(
+            f"Missing required field mappings: {', '.join(missing_fields)}"
+        )
+
+    # Apply column mapping (rename source columns to target field names)
+    reverse_mapping = {source: target for target, source in column_mapping.items()}
+    df = df.rename(columns=reverse_mapping)
+
+    # Detect and remove PII columns
+    pii_columns = detect_pii_columns(list(df.columns))
+    df = df.drop(columns=pii_columns, errors="ignore")
+
+    # Fill missing optional columns with defaults
+    if "match_rate" not in df.columns:
+        df["match_rate"] = 0.0
+    if "after_tax_rate" not in df.columns:
+        df["after_tax_rate"] = 0.0
+
+    # Handle HCE determination based on mode
+    if hce_mode == "compensation_threshold":
+        if plan_year is None:
+            raise CensusValidationError(
+                "plan_year is required when using compensation_threshold mode"
+            )
+        threshold = get_threshold_for_year(plan_year)
+        df["is_hce"] = df["compensation"].apply(lambda x: x >= threshold if pd.notna(x) else False)
+    else:
+        # Explicit mode - normalize HCE status
+        if "is_hce" in df.columns:
+            df["is_hce"] = df["is_hce"].apply(_normalize_hce_status)
+        else:
+            raise CensusValidationError(
+                "HCE Status column is required in explicit mode"
+            )
+
+    # Validate data
+    df = validate_census_data(df)
+
+    # Generate internal IDs
+    df["internal_id"] = df["employee_id"].apply(
+        lambda emp_id: generate_internal_id(str(emp_id), census_salt)
+    )
+
+    # Convert compensation to cents for integer storage
+    df["compensation_cents"] = (df["compensation"] * 100).astype(int)
+
+    return df, census_salt, column_mapping
+
+
+def process_census_simple(
+    file: TextIO,
+    census_salt: str | None = None,
+) -> tuple[pd.DataFrame, str]:
+    """
+    Simple census processing (backwards compatible).
+
+    Uses explicit HCE mode with default column mapping.
 
     Args:
         file: File-like object containing CSV data
@@ -232,20 +415,5 @@ def process_census(
     Raises:
         CensusValidationError: If parsing or validation fails
     """
-    # Generate salt if not provided
-    if census_salt is None:
-        census_salt = generate_census_salt()
-
-    # Parse and validate
-    df = parse_census_csv(file)
-    df = validate_census_data(df)
-
-    # Generate internal IDs
-    df["internal_id"] = df["employee_id"].apply(
-        lambda emp_id: generate_internal_id(str(emp_id), census_salt)
-    )
-
-    # Convert compensation to cents for integer storage
-    df["compensation_cents"] = (df["compensation"] * 100).astype(int)
-
-    return df, census_salt
+    df, salt, _ = process_census(file, census_salt, hce_mode="explicit")
+    return df, salt

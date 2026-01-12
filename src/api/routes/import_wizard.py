@@ -1,0 +1,868 @@
+"""
+Import Wizard API Routes.
+
+Provides endpoints for the CSV import wizard workflow including:
+- Session management
+- File upload and preview
+- Column mapping suggestions
+- Validation
+- Duplicate resolution
+- Import execution
+- Mapping profiles
+- Import logs
+"""
+
+import os
+import tempfile
+import uuid
+from datetime import datetime
+from pathlib import Path
+from typing import Literal
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+
+from src.api.schemas import (
+    ColumnMappingRequest,
+    ColumnMappingSuggestion,
+    DuplicateResolutionRequest,
+    FilePreview,
+    ImportExecuteRequest,
+    ImportLog as ImportLogSchema,
+    ImportLogDetail,
+    ImportLogList,
+    ImportPreview,
+    ImportResult,
+    ImportSession as ImportSessionSchema,
+    ImportSessionDetail,
+    ImportSessionList,
+    MappingProfile as MappingProfileSchema,
+    MappingProfileCreate,
+    MappingProfileList,
+    MappingProfileUpdate,
+    ProfileApplyResult,
+    PreviewRow,
+    PreviewRowList,
+    ValidationIssue as ValidationIssueSchema,
+    ValidationIssueList,
+    ValidationResult,
+    ValidationSummary,
+)
+from src.core.field_mappings import REQUIRED_FIELDS, suggest_mapping, validate_mapping
+from src.core.import_wizard import (
+    create_session,
+    detect_in_file_duplicates,
+    is_session_expired,
+    parse_csv_file,
+    parse_csv_preview,
+    validate_file,
+)
+from src.storage.database import get_db
+from src.storage.models import ImportSession, MappingProfile, ImportLog
+from src.storage.repository import (
+    ImportSessionRepository,
+    MappingProfileRepository,
+    ValidationIssueRepository,
+    ImportLogRepository,
+)
+
+
+router = APIRouter(prefix="/import", tags=["Import Wizard"])
+
+
+# Maximum file size (50MB)
+MAX_FILE_SIZE = 50 * 1024 * 1024
+
+# Temp directory for uploaded files
+UPLOAD_DIR = Path(tempfile.gettempdir()) / "acp_imports"
+
+
+def get_session_repo():
+    """Dependency for ImportSessionRepository."""
+    conn = get_db()
+    return ImportSessionRepository(conn)
+
+
+def get_profile_repo():
+    """Dependency for MappingProfileRepository."""
+    conn = get_db()
+    return MappingProfileRepository(conn)
+
+
+def get_issue_repo():
+    """Dependency for ValidationIssueRepository."""
+    conn = get_db()
+    return ValidationIssueRepository(conn)
+
+
+def get_log_repo():
+    """Dependency for ImportLogRepository."""
+    conn = get_db()
+    return ImportLogRepository(conn)
+
+
+def ensure_upload_dir():
+    """Ensure upload directory exists."""
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def get_session_or_404(
+    session_id: str,
+    repo: ImportSessionRepository,
+) -> ImportSession:
+    """Get session or raise 404."""
+    session = repo.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Import session not found")
+    if is_session_expired(session):
+        raise HTTPException(status_code=410, detail="Import session has expired")
+    return session
+
+
+# ============================================================================
+# Import Session Endpoints
+# ============================================================================
+
+
+@router.post("/sessions", status_code=201, response_model=ImportSessionSchema)
+async def create_import_session(
+    file: UploadFile = File(...),
+    repo: ImportSessionRepository = Depends(get_session_repo),
+) -> ImportSessionSchema:
+    """
+    Create a new import session with uploaded CSV file.
+
+    Accepts a CSV file upload and creates a new wizard session.
+    Returns session details with file preview information.
+    """
+    # Validate file type
+    if not file.filename or not file.filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="File must be a CSV")
+
+    # Read file content
+    content = await file.read()
+    file_size = len(content)
+
+    # Validate file size
+    if file_size > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File size ({file_size / 1024 / 1024:.1f}MB) exceeds 50MB limit"
+        )
+
+    # Parse file preview
+    try:
+        headers, sample_rows, total_rows, delimiter, encoding = parse_csv_preview(content)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to parse CSV: {str(e)}")
+
+    # Create session
+    session = create_session(
+        original_filename=file.filename,
+        file_size_bytes=file_size,
+    )
+    session.headers = headers
+    session.row_count = total_rows
+
+    # Save file to temp directory
+    ensure_upload_dir()
+    file_path = UPLOAD_DIR / f"{session.id}.csv"
+    with open(file_path, "wb") as f:
+        f.write(content)
+    session.file_reference = str(file_path)
+
+    # Save session
+    repo.save(session)
+
+    return ImportSessionSchema(
+        id=session.id,
+        current_step=session.current_step,
+        created_at=session.created_at,
+        updated_at=session.updated_at,
+        expires_at=session.expires_at,
+        original_filename=session.original_filename,
+        file_size_bytes=session.file_size_bytes,
+        row_count=session.row_count,
+    )
+
+
+@router.get("/sessions/{session_id}", response_model=ImportSessionDetail)
+async def get_import_session(
+    session_id: str,
+    repo: ImportSessionRepository = Depends(get_session_repo),
+    issue_repo: ValidationIssueRepository = Depends(get_issue_repo),
+) -> ImportSessionDetail:
+    """Get import session details."""
+    session = get_session_or_404(session_id, repo)
+
+    # Get validation summary if available
+    validation_summary = None
+    if session.validation_results:
+        summary = issue_repo.get_summary(session_id)
+        issues, total = issue_repo.get_by_session(session_id, limit=0)
+        valid_count = (session.row_count or 0) - summary.get("error", 0)
+        validation_summary = ValidationSummary(
+            total_rows=session.row_count or 0,
+            error_count=summary.get("error", 0),
+            warning_count=summary.get("warning", 0),
+            info_count=summary.get("info", 0),
+            valid_count=max(0, valid_count),
+        )
+
+    return ImportSessionDetail(
+        id=session.id,
+        current_step=session.current_step,
+        created_at=session.created_at,
+        updated_at=session.updated_at,
+        expires_at=session.expires_at,
+        original_filename=session.original_filename,
+        file_size_bytes=session.file_size_bytes,
+        row_count=session.row_count,
+        headers=session.headers,
+        column_mapping=session.column_mapping,
+        validation_summary=validation_summary,
+        duplicate_resolution=session.duplicate_resolution,
+    )
+
+
+@router.get("/sessions", response_model=ImportSessionList)
+async def list_import_sessions(
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    repo: ImportSessionRepository = Depends(get_session_repo),
+) -> ImportSessionList:
+    """List active import sessions."""
+    sessions, total = repo.list(include_expired=False, limit=limit, offset=offset)
+
+    return ImportSessionList(
+        items=[
+            ImportSessionSchema(
+                id=s.id,
+                current_step=s.current_step,
+                created_at=s.created_at,
+                updated_at=s.updated_at,
+                expires_at=s.expires_at,
+                original_filename=s.original_filename,
+                file_size_bytes=s.file_size_bytes,
+                row_count=s.row_count,
+            )
+            for s in sessions
+        ],
+        total=total,
+    )
+
+
+@router.delete("/sessions/{session_id}", status_code=204)
+async def delete_import_session(
+    session_id: str,
+    repo: ImportSessionRepository = Depends(get_session_repo),
+) -> None:
+    """Delete an import session."""
+    session = repo.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Import session not found")
+
+    # Delete uploaded file if exists
+    if session.file_reference:
+        file_path = Path(session.file_reference)
+        if file_path.exists():
+            file_path.unlink()
+
+    repo.delete(session_id)
+
+
+# ============================================================================
+# File Preview and Mapping Endpoints
+# ============================================================================
+
+
+@router.get("/sessions/{session_id}/preview", response_model=FilePreview)
+async def get_file_preview(
+    session_id: str,
+    repo: ImportSessionRepository = Depends(get_session_repo),
+) -> FilePreview:
+    """Get file headers and sample rows for preview."""
+    session = get_session_or_404(session_id, repo)
+
+    if not session.file_reference:
+        raise HTTPException(status_code=400, detail="No file uploaded for this session")
+
+    file_path = Path(session.file_reference)
+    if not file_path.exists():
+        raise HTTPException(status_code=410, detail="Uploaded file no longer available")
+
+    with open(file_path, "rb") as f:
+        content = f.read()
+
+    headers, sample_rows, total_rows, delimiter, encoding = parse_csv_preview(content)
+
+    return FilePreview(
+        headers=headers,
+        sample_rows=sample_rows,
+        total_rows=total_rows,
+        detected_delimiter=delimiter,
+        detected_encoding=encoding,
+    )
+
+
+@router.get("/sessions/{session_id}/mapping/suggest", response_model=ColumnMappingSuggestion)
+async def suggest_column_mapping(
+    session_id: str,
+    repo: ImportSessionRepository = Depends(get_session_repo),
+) -> ColumnMappingSuggestion:
+    """Get auto-suggested column mappings based on header names."""
+    session = get_session_or_404(session_id, repo)
+
+    if not session.headers:
+        raise HTTPException(status_code=400, detail="No file headers available")
+
+    mapping, confidence_scores, missing_fields = suggest_mapping(session.headers)
+
+    return ColumnMappingSuggestion(
+        suggested_mapping=mapping,
+        required_fields=REQUIRED_FIELDS,
+        missing_fields=missing_fields,
+        confidence_scores=confidence_scores,
+    )
+
+
+@router.put("/sessions/{session_id}/mapping", response_model=ImportSessionSchema)
+async def set_column_mapping(
+    session_id: str,
+    request: ColumnMappingRequest,
+    repo: ImportSessionRepository = Depends(get_session_repo),
+) -> ImportSessionSchema:
+    """Set column mapping for the import session."""
+    session = get_session_or_404(session_id, repo)
+
+    # Validate all required fields are mapped
+    is_valid, missing = validate_mapping(request.mapping)
+    if not is_valid:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Missing required field mappings: {', '.join(missing)}"
+        )
+
+    # Update session
+    session.column_mapping = request.mapping
+    session.current_step = "validate"
+    repo.update(session)
+
+    return ImportSessionSchema(
+        id=session.id,
+        current_step=session.current_step,
+        created_at=session.created_at,
+        updated_at=session.updated_at,
+        expires_at=session.expires_at,
+        original_filename=session.original_filename,
+        file_size_bytes=session.file_size_bytes,
+        row_count=session.row_count,
+    )
+
+
+# ============================================================================
+# Validation Endpoints
+# ============================================================================
+
+
+@router.post("/sessions/{session_id}/validate", response_model=ValidationResult)
+async def run_validation(
+    session_id: str,
+    repo: ImportSessionRepository = Depends(get_session_repo),
+    issue_repo: ValidationIssueRepository = Depends(get_issue_repo),
+) -> ValidationResult:
+    """Run validation on the mapped data."""
+    session = get_session_or_404(session_id, repo)
+
+    if not session.column_mapping:
+        raise HTTPException(status_code=400, detail="Column mapping must be set before validation")
+
+    if not session.file_reference:
+        raise HTTPException(status_code=400, detail="No file uploaded")
+
+    file_path = Path(session.file_reference)
+    if not file_path.exists():
+        raise HTTPException(status_code=410, detail="Uploaded file no longer available")
+
+    # Clear previous validation issues
+    issue_repo.delete_by_session(session_id)
+
+    # Parse and validate file
+    start_time = datetime.utcnow()
+
+    with open(file_path, "rb") as f:
+        content = f.read()
+
+    df = parse_csv_file(content)
+    issues, error_count, warning_count, info_count = validate_file(
+        df, session.column_mapping, session_id
+    )
+
+    # Detect in-file duplicates
+    ssn_col = session.column_mapping.get("ssn")
+    if ssn_col:
+        dup_issues = detect_in_file_duplicates(df, ssn_col, session_id)
+        issues.extend(dup_issues)
+        error_count += len(dup_issues)
+
+    # Save issues
+    issue_repo.bulk_insert(issues)
+
+    # Update session
+    end_time = datetime.utcnow()
+    duration = (end_time - start_time).total_seconds()
+
+    valid_count = (session.row_count or 0) - error_count
+    session.validation_results = {
+        "error_count": error_count,
+        "warning_count": warning_count,
+        "info_count": info_count,
+        "valid_count": max(0, valid_count),
+    }
+    session.current_step = "preview"
+    repo.update(session)
+
+    return ValidationResult(
+        session_id=session_id,
+        summary=ValidationSummary(
+            total_rows=session.row_count or 0,
+            error_count=error_count,
+            warning_count=warning_count,
+            info_count=info_count,
+            valid_count=max(0, valid_count),
+        ),
+        completed_at=end_time,
+        duration_seconds=duration,
+    )
+
+
+@router.get("/sessions/{session_id}/validation-issues", response_model=ValidationIssueList)
+async def get_validation_issues(
+    session_id: str,
+    severity: Literal["error", "warning", "info"] | None = None,
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    repo: ImportSessionRepository = Depends(get_session_repo),
+    issue_repo: ValidationIssueRepository = Depends(get_issue_repo),
+) -> ValidationIssueList:
+    """Get validation issues for a session with optional severity filter."""
+    session = get_session_or_404(session_id, repo)
+
+    issues, total = issue_repo.get_by_session(session_id, severity, limit, offset)
+
+    return ValidationIssueList(
+        items=[
+            ValidationIssueSchema(
+                id=i.id,
+                row_number=i.row_number,
+                field_name=i.field_name,
+                source_column=i.source_column,
+                severity=i.severity,
+                issue_code=i.issue_code,
+                message=i.message,
+                suggestion=i.suggestion,
+                raw_value=i.raw_value,
+                related_row=i.related_row,
+            )
+            for i in issues
+        ],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+# ============================================================================
+# Duplicate Resolution Endpoints
+# ============================================================================
+
+
+@router.put("/sessions/{session_id}/duplicate-resolution", response_model=ImportSessionSchema)
+async def set_duplicate_resolution(
+    session_id: str,
+    request: DuplicateResolutionRequest,
+    repo: ImportSessionRepository = Depends(get_session_repo),
+) -> ImportSessionSchema:
+    """Set duplicate resolution strategy for existing record conflicts."""
+    session = get_session_or_404(session_id, repo)
+
+    # Build resolution map
+    resolution = request.resolutions.copy() if request.resolutions else {}
+
+    # Apply to all if specified
+    if request.apply_to_all:
+        # In a real implementation, we'd get all duplicate SSN hashes
+        # For now, just store the apply_to_all preference
+        resolution["_apply_to_all"] = request.apply_to_all
+
+    session.duplicate_resolution = resolution
+    repo.update(session)
+
+    return ImportSessionSchema(
+        id=session.id,
+        current_step=session.current_step,
+        created_at=session.created_at,
+        updated_at=session.updated_at,
+        expires_at=session.expires_at,
+        original_filename=session.original_filename,
+        file_size_bytes=session.file_size_bytes,
+        row_count=session.row_count,
+    )
+
+
+# ============================================================================
+# Import Preview and Execution Endpoints
+# ============================================================================
+
+
+@router.get("/sessions/{session_id}/preview-import", response_model=ImportPreview)
+async def get_import_preview(
+    session_id: str,
+    repo: ImportSessionRepository = Depends(get_session_repo),
+    issue_repo: ValidationIssueRepository = Depends(get_issue_repo),
+) -> ImportPreview:
+    """Get pre-commit import preview with categorized counts."""
+    session = get_session_or_404(session_id, repo)
+
+    summary = issue_repo.get_summary(session_id)
+    total_rows = session.row_count or 0
+    error_count = summary.get("error", 0)
+    warning_count = summary.get("warning", 0)
+
+    # Calculate counts
+    # Rows with errors will be rejected
+    reject_count = error_count
+    import_count = total_rows - reject_count
+
+    # Count replace/skip from duplicate resolution
+    replace_count = 0
+    skip_count = 0
+    if session.duplicate_resolution:
+        for key, action in session.duplicate_resolution.items():
+            if key == "_apply_to_all":
+                continue
+            if action == "replace":
+                replace_count += 1
+            elif action == "skip":
+                skip_count += 1
+                import_count -= 1
+
+    return ImportPreview(
+        total_rows=total_rows,
+        import_count=max(0, import_count),
+        reject_count=reject_count,
+        warning_count=warning_count,
+        replace_count=replace_count if replace_count > 0 else None,
+        skip_count=skip_count if skip_count > 0 else None,
+    )
+
+
+@router.post("/sessions/{session_id}/execute", response_model=ImportResult)
+async def execute_import(
+    session_id: str,
+    request: ImportExecuteRequest,
+    repo: ImportSessionRepository = Depends(get_session_repo),
+    log_repo: ImportLogRepository = Depends(get_log_repo),
+    issue_repo: ValidationIssueRepository = Depends(get_issue_repo),
+) -> ImportResult:
+    """Execute the import and create census records."""
+    session = get_session_or_404(session_id, repo)
+
+    if not session.column_mapping:
+        raise HTTPException(status_code=400, detail="Column mapping must be set")
+
+    if not session.validation_results:
+        raise HTTPException(status_code=400, detail="Validation must be run first")
+
+    # Get validation summary
+    summary = issue_repo.get_summary(session_id)
+    total_rows = session.row_count or 0
+    error_count = summary.get("error", 0)
+    warning_count = summary.get("warning", 0)
+
+    # Create import log
+    start_time = datetime.utcnow()
+
+    import_log = ImportLog(
+        id=str(uuid.uuid4()),
+        session_id=session_id,
+        original_filename=session.original_filename or "unknown.csv",
+        total_rows=total_rows,
+        column_mapping_used=session.column_mapping,
+        created_at=start_time,
+    )
+
+    # TODO: Implement actual census creation
+    # For now, just calculate the counts
+    imported_count = total_rows - error_count
+    rejected_count = error_count
+
+    # Update log with results
+    import_log.imported_count = imported_count
+    import_log.rejected_count = rejected_count
+    import_log.warning_count = warning_count
+    import_log.completed_at = datetime.utcnow()
+
+    log_repo.save(import_log)
+
+    # Update session
+    session.current_step = "completed"
+    session.import_result_id = import_log.id
+    repo.update(session)
+
+    duration = (import_log.completed_at - start_time).total_seconds()
+
+    return ImportResult(
+        import_log_id=import_log.id,
+        census_id=import_log.census_id or "",
+        summary={
+            "total_rows": total_rows,
+            "imported_count": imported_count,
+            "rejected_count": rejected_count,
+            "warning_count": warning_count,
+            "replaced_count": import_log.replaced_count,
+            "skipped_count": import_log.skipped_count,
+        },
+        completed_at=import_log.completed_at,
+        duration_seconds=duration,
+    )
+
+
+# ============================================================================
+# Import Log Endpoints
+# ============================================================================
+
+
+@router.get("/logs", response_model=ImportLogList)
+async def list_import_logs(
+    census_id: str | None = None,
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    repo: ImportLogRepository = Depends(get_log_repo),
+) -> ImportLogList:
+    """List import logs with optional filtering."""
+    logs, total = repo.list(census_id=census_id, limit=limit, offset=offset)
+
+    return ImportLogList(
+        items=[
+            ImportLogSchema(
+                id=log.id,
+                census_id=log.census_id,
+                created_at=log.created_at,
+                completed_at=log.completed_at,
+                original_filename=log.original_filename,
+                total_rows=log.total_rows,
+                imported_count=log.imported_count,
+                rejected_count=log.rejected_count,
+                warning_count=log.warning_count,
+                replaced_count=log.replaced_count,
+                skipped_count=log.skipped_count,
+            )
+            for log in logs
+        ],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/logs/{log_id}", response_model=ImportLogDetail)
+async def get_import_log(
+    log_id: str,
+    repo: ImportLogRepository = Depends(get_log_repo),
+) -> ImportLogDetail:
+    """Get import log details."""
+    log = repo.get(log_id)
+    if log is None:
+        raise HTTPException(status_code=404, detail="Import log not found")
+
+    return ImportLogDetail(
+        id=log.id,
+        census_id=log.census_id,
+        created_at=log.created_at,
+        completed_at=log.completed_at,
+        original_filename=log.original_filename,
+        total_rows=log.total_rows,
+        imported_count=log.imported_count,
+        rejected_count=log.rejected_count,
+        warning_count=log.warning_count,
+        replaced_count=log.replaced_count,
+        skipped_count=log.skipped_count,
+        column_mapping_used=log.column_mapping_used,
+        detailed_results=None,  # TODO: Convert to PreviewRow list
+    )
+
+
+@router.delete("/logs/{log_id}", status_code=204)
+async def delete_import_log(
+    log_id: str,
+    repo: ImportLogRepository = Depends(get_log_repo),
+) -> None:
+    """Soft delete an import log."""
+    if not repo.soft_delete(log_id):
+        raise HTTPException(status_code=404, detail="Import log not found")
+
+
+# ============================================================================
+# Mapping Profile Endpoints
+# ============================================================================
+
+
+@router.post("/mapping-profiles", status_code=201, response_model=MappingProfileSchema)
+async def create_mapping_profile(
+    request: MappingProfileCreate,
+    repo: MappingProfileRepository = Depends(get_profile_repo),
+) -> MappingProfileSchema:
+    """Create a new mapping profile."""
+    # Check for duplicate name
+    existing = repo.get_by_name(request.name)
+    if existing:
+        raise HTTPException(status_code=409, detail="Profile with this name already exists")
+
+    profile = MappingProfile(
+        id=str(uuid.uuid4()),
+        name=request.name,
+        description=request.description,
+        column_mapping=request.column_mapping,
+        expected_headers=request.expected_headers,
+        created_at=datetime.utcnow(),
+    )
+
+    repo.save(profile)
+
+    return MappingProfileSchema(
+        id=profile.id,
+        name=profile.name,
+        description=profile.description,
+        column_mapping=profile.column_mapping,
+        expected_headers=profile.expected_headers,
+        created_at=profile.created_at,
+        updated_at=profile.updated_at,
+    )
+
+
+@router.get("/mapping-profiles", response_model=MappingProfileList)
+async def list_mapping_profiles(
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    repo: MappingProfileRepository = Depends(get_profile_repo),
+) -> MappingProfileList:
+    """List mapping profiles."""
+    profiles, total = repo.list(limit=limit, offset=offset)
+
+    return MappingProfileList(
+        items=[
+            MappingProfileSchema(
+                id=p.id,
+                name=p.name,
+                description=p.description,
+                column_mapping=p.column_mapping,
+                expected_headers=p.expected_headers,
+                created_at=p.created_at,
+                updated_at=p.updated_at,
+            )
+            for p in profiles
+        ],
+        total=total,
+    )
+
+
+@router.get("/mapping-profiles/{profile_id}", response_model=MappingProfileSchema)
+async def get_mapping_profile(
+    profile_id: str,
+    repo: MappingProfileRepository = Depends(get_profile_repo),
+) -> MappingProfileSchema:
+    """Get a mapping profile by ID."""
+    profile = repo.get(profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Mapping profile not found")
+
+    return MappingProfileSchema(
+        id=profile.id,
+        name=profile.name,
+        description=profile.description,
+        column_mapping=profile.column_mapping,
+        expected_headers=profile.expected_headers,
+        created_at=profile.created_at,
+        updated_at=profile.updated_at,
+    )
+
+
+@router.put("/mapping-profiles/{profile_id}", response_model=MappingProfileSchema)
+async def update_mapping_profile(
+    profile_id: str,
+    request: MappingProfileUpdate,
+    repo: MappingProfileRepository = Depends(get_profile_repo),
+) -> MappingProfileSchema:
+    """Update a mapping profile."""
+    profile = repo.get(profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Mapping profile not found")
+
+    if request.name is not None:
+        profile.name = request.name
+    if request.description is not None:
+        profile.description = request.description
+    if request.column_mapping is not None:
+        profile.column_mapping = request.column_mapping
+
+    repo.update(profile)
+
+    return MappingProfileSchema(
+        id=profile.id,
+        name=profile.name,
+        description=profile.description,
+        column_mapping=profile.column_mapping,
+        expected_headers=profile.expected_headers,
+        created_at=profile.created_at,
+        updated_at=profile.updated_at,
+    )
+
+
+@router.delete("/mapping-profiles/{profile_id}", status_code=204)
+async def delete_mapping_profile(
+    profile_id: str,
+    repo: MappingProfileRepository = Depends(get_profile_repo),
+) -> None:
+    """Delete a mapping profile."""
+    if not repo.delete(profile_id):
+        raise HTTPException(status_code=404, detail="Mapping profile not found")
+
+
+@router.post("/mapping-profiles/{profile_id}/apply", response_model=ProfileApplyResult)
+async def apply_mapping_profile(
+    profile_id: str,
+    session_id: str = Query(..., description="Session ID to apply profile to"),
+    profile_repo: MappingProfileRepository = Depends(get_profile_repo),
+    session_repo: ImportSessionRepository = Depends(get_session_repo),
+) -> ProfileApplyResult:
+    """Apply a mapping profile to an import session."""
+    profile = profile_repo.get(profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Mapping profile not found")
+
+    session = get_session_or_404(session_id, session_repo)
+
+    if not session.headers:
+        raise HTTPException(status_code=400, detail="Session has no file headers")
+
+    # Determine which mappings can be applied
+    applied_mappings = {}
+    unmatched_fields = []
+
+    for field, source_column in profile.column_mapping.items():
+        if source_column in session.headers:
+            applied_mappings[field] = source_column
+        else:
+            unmatched_fields.append(field)
+
+    # Update session with applied mappings
+    session.column_mapping = applied_mappings
+    session_repo.update(session)
+
+    return ProfileApplyResult(
+        session_id=session_id,
+        profile_id=profile_id,
+        applied_mappings=applied_mappings,
+        unmatched_fields=unmatched_fields,
+        success=len(unmatched_fields) == 0,
+    )

@@ -1,0 +1,1277 @@
+openapi: 3.1.0
+info:
+  title: CSV Import Wizard API
+  description: API endpoints for the CSV Import + Column Mapping Wizard feature
+  version: 1.0.0
+
+servers:
+  - url: /api/v1
+    description: API v1
+
+paths:
+  # ============ Import Session Endpoints ============
+  /import/sessions:
+    post:
+      operationId: createImportSession
+      summary: Create a new import session
+      description: |
+        Initializes a new import wizard session. Upload the CSV file to begin.
+        Sessions expire after 24 hours.
+      tags:
+        - Import Wizard
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: CSV file to import (max 50MB)
+      responses:
+        '201':
+          description: Session created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportSession'
+        '400':
+          description: Invalid file or file too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '413':
+          description: File exceeds 50MB limit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    get:
+      operationId: listImportSessions
+      summary: List active import sessions
+      description: Returns all non-expired import sessions for the current user
+      tags:
+        - Import Wizard
+      responses:
+        '200':
+          description: List of sessions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportSessionList'
+
+  /import/sessions/{sessionId}:
+    get:
+      operationId: getImportSession
+      summary: Get import session details
+      description: Returns the current state of an import session
+      tags:
+        - Import Wizard
+      parameters:
+        - $ref: '#/components/parameters/sessionId'
+      responses:
+        '200':
+          description: Session details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportSessionDetail'
+        '404':
+          description: Session not found or expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      operationId: deleteImportSession
+      summary: Cancel and delete an import session
+      description: Cancels the import and removes session data
+      tags:
+        - Import Wizard
+      parameters:
+        - $ref: '#/components/parameters/sessionId'
+      responses:
+        '204':
+          description: Session deleted
+        '404':
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ============ Column Mapping Endpoints ============
+  /import/sessions/{sessionId}/preview:
+    get:
+      operationId: getFilePreview
+      summary: Get CSV file preview
+      description: Returns headers and first 5 rows of the uploaded file
+      tags:
+        - Import Wizard
+      parameters:
+        - $ref: '#/components/parameters/sessionId'
+      responses:
+        '200':
+          description: File preview
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FilePreview'
+        '404':
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /import/sessions/{sessionId}/mapping/suggest:
+    get:
+      operationId: suggestColumnMapping
+      summary: Get auto-suggested column mappings
+      description: |
+        Returns suggested mappings from CSV columns to required census fields.
+        Based on header name pattern matching.
+      tags:
+        - Import Wizard
+      parameters:
+        - $ref: '#/components/parameters/sessionId'
+      responses:
+        '200':
+          description: Suggested mappings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ColumnMappingSuggestion'
+        '404':
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /import/sessions/{sessionId}/mapping:
+    put:
+      operationId: setColumnMapping
+      summary: Set column mapping for the session
+      description: |
+        Sets the column mapping configuration. All 9 required fields must be mapped.
+        Advances session to 'validate' step.
+      tags:
+        - Import Wizard
+      parameters:
+        - $ref: '#/components/parameters/sessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ColumnMappingRequest'
+      responses:
+        '200':
+          description: Mapping set successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportSession'
+        '400':
+          description: Invalid mapping (missing required fields)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '404':
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ============ Validation Endpoints ============
+  /import/sessions/{sessionId}/validate:
+    post:
+      operationId: runValidation
+      summary: Run validation on mapped data
+      description: |
+        Validates all rows against the column mapping. Returns validation summary.
+        Advances session to 'preview' step when complete.
+      tags:
+        - Import Wizard
+      parameters:
+        - $ref: '#/components/parameters/sessionId'
+      responses:
+        '200':
+          description: Validation complete
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationResult'
+        '400':
+          description: Mapping not set
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /import/sessions/{sessionId}/validation-issues:
+    get:
+      operationId: getValidationIssues
+      summary: Get detailed validation issues
+      description: Returns paginated list of validation issues grouped by severity
+      tags:
+        - Import Wizard
+      parameters:
+        - $ref: '#/components/parameters/sessionId'
+        - name: severity
+          in: query
+          schema:
+            type: string
+            enum: [error, warning, info]
+          description: Filter by severity level
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+            maximum: 1000
+          description: Maximum issues to return
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+          description: Offset for pagination
+      responses:
+        '200':
+          description: Validation issues
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationIssueList'
+        '404':
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ============ Preview Endpoints ============
+  /import/sessions/{sessionId}/preview-import:
+    get:
+      operationId: getImportPreview
+      summary: Get pre-commit import preview
+      description: |
+        Returns categorized preview of what will be imported, rejected, or flagged.
+        Shows row counts and allows drilling into each category.
+      tags:
+        - Import Wizard
+      parameters:
+        - $ref: '#/components/parameters/sessionId'
+      responses:
+        '200':
+          description: Import preview
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportPreview'
+        '400':
+          description: Validation not complete
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /import/sessions/{sessionId}/preview-import/rows:
+    get:
+      operationId: getPreviewRows
+      summary: Get preview rows by category
+      description: Returns paginated rows for a specific category (import/reject/warning)
+      tags:
+        - Import Wizard
+      parameters:
+        - $ref: '#/components/parameters/sessionId'
+        - name: category
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [import, reject, warning]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 500
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Preview rows
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreviewRowList'
+        '404':
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /import/sessions/{sessionId}/duplicate-resolution:
+    put:
+      operationId: setDuplicateResolution
+      summary: Set resolution for duplicate records
+      description: |
+        For SSNs that match existing records, specify whether to replace or skip.
+        Only applicable to 'warning' level duplicates.
+      tags:
+        - Import Wizard
+      parameters:
+        - $ref: '#/components/parameters/sessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DuplicateResolutionRequest'
+      responses:
+        '200':
+          description: Resolution set
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportSession'
+        '400':
+          description: Invalid resolution
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ============ Import Execution Endpoints ============
+  /import/sessions/{sessionId}/execute:
+    post:
+      operationId: executeImport
+      summary: Execute the import
+      description: |
+        Imports all valid records, creating a new census. Returns import results.
+        Advances session to 'completed' step.
+      tags:
+        - Import Wizard
+      parameters:
+        - $ref: '#/components/parameters/sessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImportExecuteRequest'
+      responses:
+        '201':
+          description: Import completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportResult'
+        '400':
+          description: Cannot execute (errors exist or validation incomplete)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ============ Import Log Endpoints ============
+  /import/logs:
+    get:
+      operationId: listImportLogs
+      summary: List import logs
+      description: Returns paginated list of completed import logs
+      tags:
+        - Import Logs
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Import logs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportLogList'
+
+  /import/logs/{logId}:
+    get:
+      operationId: getImportLog
+      summary: Get import log details
+      description: Returns detailed import log with per-row results
+      tags:
+        - Import Logs
+      parameters:
+        - name: logId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Import log details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportLogDetail'
+        '404':
+          description: Log not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      operationId: deleteImportLog
+      summary: Delete an import log
+      description: Permanently deletes an import log
+      tags:
+        - Import Logs
+      parameters:
+        - name: logId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Log deleted
+        '404':
+          description: Log not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /import/logs/{logId}/download:
+    get:
+      operationId: downloadImportLog
+      summary: Download import log as file
+      description: Downloads detailed import log as CSV or JSON
+      tags:
+        - Import Logs
+      parameters:
+        - name: logId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: [csv, json]
+            default: csv
+      responses:
+        '200':
+          description: Log file
+          content:
+            text/csv:
+              schema:
+                type: string
+            application/json:
+              schema:
+                type: object
+        '404':
+          description: Log not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ============ Mapping Profile Endpoints ============
+  /import/mapping-profiles:
+    get:
+      operationId: listMappingProfiles
+      summary: List saved mapping profiles
+      description: Returns all saved mapping profiles for the current user
+      tags:
+        - Mapping Profiles
+      responses:
+        '200':
+          description: Mapping profiles
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MappingProfileList'
+
+    post:
+      operationId: createMappingProfile
+      summary: Save a new mapping profile
+      description: Saves the current column mapping as a named profile
+      tags:
+        - Mapping Profiles
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MappingProfileCreate'
+      responses:
+        '201':
+          description: Profile created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MappingProfile'
+        '400':
+          description: Invalid profile data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '409':
+          description: Profile name already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /import/mapping-profiles/{profileId}:
+    get:
+      operationId: getMappingProfile
+      summary: Get mapping profile details
+      tags:
+        - Mapping Profiles
+      parameters:
+        - name: profileId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Profile details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MappingProfile'
+        '404':
+          description: Profile not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    put:
+      operationId: updateMappingProfile
+      summary: Update a mapping profile
+      tags:
+        - Mapping Profiles
+      parameters:
+        - name: profileId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MappingProfileUpdate'
+      responses:
+        '200':
+          description: Profile updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MappingProfile'
+        '404':
+          description: Profile not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      operationId: deleteMappingProfile
+      summary: Delete a mapping profile
+      tags:
+        - Mapping Profiles
+      parameters:
+        - name: profileId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Profile deleted
+        '404':
+          description: Profile not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /import/mapping-profiles/{profileId}/apply:
+    post:
+      operationId: applyMappingProfile
+      summary: Apply a mapping profile to a session
+      description: |
+        Applies a saved mapping profile to an active import session.
+        Returns match results showing which columns were mapped.
+      tags:
+        - Mapping Profiles
+      parameters:
+        - name: profileId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - session_id
+              properties:
+                session_id:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Profile applied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfileApplyResult'
+        '404':
+          description: Profile or session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  parameters:
+    sessionId:
+      name: sessionId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Import session ID
+
+  schemas:
+    # ============ Import Session Schemas ============
+    ImportSession:
+      type: object
+      required:
+        - id
+        - current_step
+        - created_at
+        - expires_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        current_step:
+          type: string
+          enum: [upload, map, validate, preview, confirm, completed]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        original_filename:
+          type: string
+        file_size_bytes:
+          type: integer
+        row_count:
+          type: integer
+
+    ImportSessionDetail:
+      allOf:
+        - $ref: '#/components/schemas/ImportSession'
+        - type: object
+          properties:
+            headers:
+              type: array
+              items:
+                type: string
+            column_mapping:
+              type: object
+              additionalProperties:
+                type: string
+            validation_summary:
+              $ref: '#/components/schemas/ValidationSummary'
+            duplicate_resolution:
+              type: object
+              additionalProperties:
+                type: string
+                enum: [replace, skip]
+
+    ImportSessionList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImportSession'
+        total:
+          type: integer
+
+    # ============ File Preview Schemas ============
+    FilePreview:
+      type: object
+      required:
+        - headers
+        - sample_rows
+        - total_rows
+      properties:
+        headers:
+          type: array
+          items:
+            type: string
+        sample_rows:
+          type: array
+          items:
+            type: array
+            items:
+              type: string
+          maxItems: 5
+        total_rows:
+          type: integer
+        detected_delimiter:
+          type: string
+        detected_encoding:
+          type: string
+
+    # ============ Column Mapping Schemas ============
+    ColumnMappingSuggestion:
+      type: object
+      required:
+        - suggested_mapping
+        - required_fields
+        - confidence_scores
+      properties:
+        suggested_mapping:
+          type: object
+          additionalProperties:
+            type: string
+          description: Map of target_field to source_column
+        required_fields:
+          type: array
+          items:
+            type: string
+          description: List of required target fields
+        missing_fields:
+          type: array
+          items:
+            type: string
+          description: Required fields not auto-mapped
+        confidence_scores:
+          type: object
+          additionalProperties:
+            type: number
+            minimum: 0
+            maximum: 1
+          description: Confidence score for each mapping (0-1)
+
+    ColumnMappingRequest:
+      type: object
+      required:
+        - mapping
+      properties:
+        mapping:
+          type: object
+          additionalProperties:
+            type: string
+          description: |
+            Map of target_field to source_column.
+            Required fields: ssn, dob, hire_date, compensation,
+            employee_pre_tax, employee_after_tax, employee_roth,
+            employer_match, employer_non_elective
+
+    # ============ Validation Schemas ============
+    ValidationSummary:
+      type: object
+      required:
+        - total_rows
+        - error_count
+        - warning_count
+        - info_count
+        - valid_count
+      properties:
+        total_rows:
+          type: integer
+        error_count:
+          type: integer
+        warning_count:
+          type: integer
+        info_count:
+          type: integer
+        valid_count:
+          type: integer
+          description: Rows with no errors (may have warnings)
+
+    ValidationResult:
+      type: object
+      required:
+        - session_id
+        - summary
+        - completed_at
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        summary:
+          $ref: '#/components/schemas/ValidationSummary'
+        completed_at:
+          type: string
+          format: date-time
+        duration_seconds:
+          type: number
+
+    ValidationIssue:
+      type: object
+      required:
+        - id
+        - row_number
+        - field_name
+        - severity
+        - issue_code
+        - message
+      properties:
+        id:
+          type: string
+          format: uuid
+        row_number:
+          type: integer
+        field_name:
+          type: string
+        source_column:
+          type: string
+        severity:
+          type: string
+          enum: [error, warning, info]
+        issue_code:
+          type: string
+        message:
+          type: string
+        suggestion:
+          type: string
+        raw_value:
+          type: string
+        related_row:
+          type: integer
+
+    ValidationIssueList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ValidationIssue'
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    # ============ Import Preview Schemas ============
+    ImportPreview:
+      type: object
+      required:
+        - total_rows
+        - import_count
+        - reject_count
+        - warning_count
+      properties:
+        total_rows:
+          type: integer
+        import_count:
+          type: integer
+          description: Rows that will be imported
+        reject_count:
+          type: integer
+          description: Rows that will be rejected (errors)
+        warning_count:
+          type: integer
+          description: Rows with warnings (will import with flag)
+        replace_count:
+          type: integer
+          description: Existing records to be replaced
+        skip_count:
+          type: integer
+          description: Duplicates to be skipped
+
+    PreviewRow:
+      type: object
+      required:
+        - row_number
+        - status
+        - data
+      properties:
+        row_number:
+          type: integer
+        status:
+          type: string
+          enum: [import, reject, warning]
+        data:
+          type: object
+          additionalProperties:
+            type: string
+        issues:
+          type: array
+          items:
+            $ref: '#/components/schemas/ValidationIssue'
+
+    PreviewRowList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PreviewRow'
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    # ============ Duplicate Resolution Schemas ============
+    DuplicateResolutionRequest:
+      type: object
+      required:
+        - resolutions
+      properties:
+        resolutions:
+          type: object
+          additionalProperties:
+            type: string
+            enum: [replace, skip]
+          description: Map of SSN hash to resolution action
+        apply_to_all:
+          type: string
+          enum: [replace, skip]
+          description: Apply same resolution to all duplicates
+
+    # ============ Import Execution Schemas ============
+    ImportExecuteRequest:
+      type: object
+      required:
+        - census_name
+        - plan_year
+      properties:
+        census_name:
+          type: string
+          maxLength: 255
+        plan_year:
+          type: integer
+          minimum: 2020
+          maximum: 2100
+        client_name:
+          type: string
+          maxLength: 255
+        save_mapping_profile:
+          type: boolean
+          default: false
+        mapping_profile_name:
+          type: string
+          maxLength: 255
+          description: Required if save_mapping_profile is true
+
+    ImportResult:
+      type: object
+      required:
+        - import_log_id
+        - census_id
+        - summary
+      properties:
+        import_log_id:
+          type: string
+          format: uuid
+        census_id:
+          type: string
+          format: uuid
+        summary:
+          type: object
+          properties:
+            total_rows:
+              type: integer
+            imported_count:
+              type: integer
+            rejected_count:
+              type: integer
+            warning_count:
+              type: integer
+            replaced_count:
+              type: integer
+            skipped_count:
+              type: integer
+        completed_at:
+          type: string
+          format: date-time
+        duration_seconds:
+          type: number
+
+    # ============ Import Log Schemas ============
+    ImportLog:
+      type: object
+      required:
+        - id
+        - created_at
+        - original_filename
+        - total_rows
+      properties:
+        id:
+          type: string
+          format: uuid
+        census_id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        original_filename:
+          type: string
+        total_rows:
+          type: integer
+        imported_count:
+          type: integer
+        rejected_count:
+          type: integer
+        warning_count:
+          type: integer
+        replaced_count:
+          type: integer
+        skipped_count:
+          type: integer
+
+    ImportLogDetail:
+      allOf:
+        - $ref: '#/components/schemas/ImportLog'
+        - type: object
+          properties:
+            column_mapping_used:
+              type: object
+              additionalProperties:
+                type: string
+            detailed_results:
+              type: array
+              items:
+                $ref: '#/components/schemas/PreviewRow'
+
+    ImportLogList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImportLog'
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    # ============ Mapping Profile Schemas ============
+    MappingProfile:
+      type: object
+      required:
+        - id
+        - name
+        - column_mapping
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 255
+        description:
+          type: string
+        column_mapping:
+          type: object
+          additionalProperties:
+            type: string
+        expected_headers:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    MappingProfileCreate:
+      type: object
+      required:
+        - name
+        - column_mapping
+      properties:
+        name:
+          type: string
+          maxLength: 255
+        description:
+          type: string
+        column_mapping:
+          type: object
+          additionalProperties:
+            type: string
+        expected_headers:
+          type: array
+          items:
+            type: string
+
+    MappingProfileUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 255
+        description:
+          type: string
+        column_mapping:
+          type: object
+          additionalProperties:
+            type: string
+
+    MappingProfileList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MappingProfile'
+        total:
+          type: integer
+
+    ProfileApplyResult:
+      type: object
+      required:
+        - session_id
+        - profile_id
+        - applied_mappings
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        profile_id:
+          type: string
+          format: uuid
+        applied_mappings:
+          type: object
+          additionalProperties:
+            type: string
+          description: Successfully applied mappings
+        unmatched_fields:
+          type: array
+          items:
+            type: string
+          description: Profile fields not found in current file headers
+        success:
+          type: boolean
+
+    # ============ Error Schemas ============
+    Error:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+
+    ValidationError:
+      type: object
+      required:
+        - detail
+      properties:
+        detail:
+          type: array
+          items:
+            type: object
+            properties:
+              loc:
+                type: array
+                items:
+                  type: string
+              msg:
+                type: string
+              type:
+                type: string
+
+tags:
+  - name: Import Wizard
+    description: Import wizard session and step management
+  - name: Import Logs
+    description: Completed import logs and history
+  - name: Mapping Profiles
+    description: Saved column mapping configurations

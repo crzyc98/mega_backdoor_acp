@@ -25,6 +25,7 @@ st.sidebar.caption(f"Version {SYSTEM_VERSION}")
 # Navigation options
 pages = {
     "Upload Census": "upload",
+    "Import Wizard": "import_wizard",
     "Run Analysis": "analysis",
     "Export Results": "export",
 }
@@ -50,9 +51,17 @@ def show_export_page() -> None:
     render()
 
 
+def show_import_wizard_page() -> None:
+    """Display the import wizard page."""
+    from src.ui.pages.import_wizard import render
+    render()
+
+
 # Main content based on selected page
 if pages[selected_page] == "upload":
     show_upload_page()
+elif pages[selected_page] == "import_wizard":
+    show_import_wizard_page()
 elif pages[selected_page] == "analysis":
     show_analysis_page()
 elif pages[selected_page] == "export":

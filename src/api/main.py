@@ -83,7 +83,8 @@ async def generic_exception_handler(request: Request, exc: Exception) -> JSONRes
 
 
 # Import and register routes
-from src.api.routes import census, analysis, export
+from src.api.routes import census, analysis, export, import_wizard
 app.include_router(census.router, prefix="/api/v1", tags=["Census"])
 app.include_router(analysis.router, prefix="/api/v1", tags=["Analysis"])
 app.include_router(export.router, prefix="/api/v1", tags=["Export"])
+app.include_router(import_wizard.router, prefix="/api/v1", tags=["Import Wizard"])
