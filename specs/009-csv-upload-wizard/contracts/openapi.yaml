@@ -1,0 +1,875 @@
+openapi: 3.1.0
+info:
+  title: Census CSV Import Wizard API
+  version: 1.0.0
+  description: |
+    API endpoints for the enhanced census CSV upload wizard.
+    Extends existing import wizard endpoints with date format handling,
+    preview rows with validation status, and workspace-scoped mapping profiles.
+
+servers:
+  - url: http://localhost:8000
+    description: Development server
+
+tags:
+  - name: Import Sessions
+    description: Manage import wizard sessions
+  - name: Mapping
+    description: Column mapping and profiles
+  - name: Validation
+    description: Data validation and preview
+  - name: Date Format
+    description: Date format selection and preview
+
+paths:
+  # ============================================================================
+  # Import Sessions
+  # ============================================================================
+  /api/workspaces/{workspace_id}/import/sessions:
+    post:
+      summary: Create import session with file upload
+      description: Upload a CSV file and create a new import wizard session
+      tags: [Import Sessions]
+      operationId: createImportSession
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: CSV file to import
+      responses:
+        '201':
+          description: Session created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportSession'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '413':
+          description: File too large (max 50MB)
+
+  /api/import/sessions/{session_id}:
+    get:
+      summary: Get session details
+      tags: [Import Sessions]
+      operationId: getImportSession
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Session details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportSessionDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '410':
+          description: Session expired
+
+    delete:
+      summary: Delete/cancel import session
+      tags: [Import Sessions]
+      operationId: deleteImportSession
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '204':
+          description: Session deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/import/sessions/{session_id}/preview:
+    get:
+      summary: Get file preview (headers + sample rows)
+      tags: [Import Sessions]
+      operationId: getFilePreview
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: File preview data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FilePreview'
+
+  # ============================================================================
+  # Column Mapping
+  # ============================================================================
+  /api/import/sessions/{session_id}/mapping/suggest:
+    get:
+      summary: Get auto-suggested column mappings
+      description: Returns fuzzy-matched mapping suggestions with confidence scores
+      tags: [Mapping]
+      operationId: suggestColumnMapping
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Mapping suggestions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ColumnMappingSuggestion'
+
+  /api/import/sessions/{session_id}/mapping:
+    put:
+      summary: Set column mapping for session
+      tags: [Mapping]
+      operationId: setColumnMapping
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ColumnMappingRequest'
+      responses:
+        '200':
+          description: Mapping saved, session advanced to next step
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportSession'
+        '400':
+          description: Missing required field mappings
+
+  # ============================================================================
+  # Date Format (NEW)
+  # ============================================================================
+  /api/import/sessions/{session_id}/date-format/detect:
+    get:
+      summary: Auto-detect date format from sample data
+      description: Analyzes date columns and suggests the most likely format
+      tags: [Date Format]
+      operationId: detectDateFormat
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Date format detection results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DateFormatDetection'
+
+  /api/import/sessions/{session_id}/date-format/preview:
+    get:
+      summary: Preview date parsing with specific format
+      description: Shows how sample dates will be parsed with the given format
+      tags: [Date Format]
+      operationId: previewDateFormat
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - name: format
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Date format string (e.g., %m/%d/%Y)
+      responses:
+        '200':
+          description: Date parsing preview
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DateFormatPreview'
+
+  /api/import/sessions/{session_id}/date-format:
+    put:
+      summary: Set date format for session
+      tags: [Date Format]
+      operationId: setDateFormat
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [date_format]
+              properties:
+                date_format:
+                  type: string
+                  description: Selected date format string
+                  example: "%m/%d/%Y"
+      responses:
+        '200':
+          description: Date format saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportSession'
+
+  # ============================================================================
+  # Validation
+  # ============================================================================
+  /api/import/sessions/{session_id}/validate:
+    post:
+      summary: Run full validation on mapped data
+      tags: [Validation]
+      operationId: runValidation
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Validation complete
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationResult'
+
+  /api/import/sessions/{session_id}/validation-issues:
+    get:
+      summary: Get validation issues with filtering
+      tags: [Validation]
+      operationId: getValidationIssues
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - name: severity
+          in: query
+          schema:
+            type: string
+            enum: [error, warning, info]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Validation issues
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationIssueList'
+
+  /api/import/sessions/{session_id}/preview-rows:
+    get:
+      summary: Get transformed preview rows with validation status
+      description: Returns paginated rows with mapped values, parsed dates, and per-row status
+      tags: [Validation]
+      operationId: getPreviewRows
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [valid, warning, error]
+          description: Filter by row status
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+            maximum: 500
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Preview rows with validation status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreviewRowList'
+
+  # ============================================================================
+  # Import Execution
+  # ============================================================================
+  /api/import/sessions/{session_id}/execute:
+    post:
+      summary: Execute the import
+      description: Creates census records from validated data. Blocked if any errors exist.
+      tags: [Import Sessions]
+      operationId: executeImport
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                save_profile:
+                  type: boolean
+                  description: Save current mapping as a profile
+                profile_name:
+                  type: string
+                  description: Name for saved profile (required if save_profile=true)
+      responses:
+        '200':
+          description: Import executed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportResult'
+        '400':
+          description: Cannot execute - validation errors exist
+
+  # ============================================================================
+  # Mapping Profiles (Workspace-scoped)
+  # ============================================================================
+  /api/workspaces/{workspace_id}/import/mapping-profiles:
+    get:
+      summary: List mapping profiles for workspace
+      tags: [Mapping]
+      operationId: listWorkspaceMappingProfiles
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      responses:
+        '200':
+          description: Mapping profiles
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MappingProfileList'
+
+    post:
+      summary: Create mapping profile for workspace
+      tags: [Mapping]
+      operationId: createWorkspaceMappingProfile
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MappingProfileCreate'
+      responses:
+        '201':
+          description: Profile created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MappingProfile'
+        '409':
+          description: Profile with this name already exists
+
+  /api/workspaces/{workspace_id}/import/mapping-profiles/{profile_id}:
+    put:
+      summary: Update mapping profile
+      tags: [Mapping]
+      operationId: updateWorkspaceMappingProfile
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/ProfileId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MappingProfileUpdate'
+      responses:
+        '200':
+          description: Profile updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MappingProfile'
+
+    delete:
+      summary: Delete mapping profile
+      tags: [Mapping]
+      operationId: deleteWorkspaceMappingProfile
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/ProfileId'
+      responses:
+        '204':
+          description: Profile deleted
+
+  /api/import/sessions/{session_id}/apply-profile:
+    post:
+      summary: Apply mapping profile to session
+      tags: [Mapping]
+      operationId: applyMappingProfile
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [profile_id]
+              properties:
+                profile_id:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Profile applied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfileApplyResult'
+
+components:
+  parameters:
+    WorkspaceId:
+      name: workspace_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    SessionId:
+      name: session_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ProfileId:
+      name: profile_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        detail:
+          type: string
+
+    ImportSession:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        current_step:
+          type: string
+          enum: [upload, mapping, date_format, validation, preview, completed]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        original_filename:
+          type: string
+        file_size_bytes:
+          type: integer
+        row_count:
+          type: integer
+
+    ImportSessionDetail:
+      allOf:
+        - $ref: '#/components/schemas/ImportSession'
+        - type: object
+          properties:
+            headers:
+              type: array
+              items:
+                type: string
+            column_mapping:
+              type: object
+              additionalProperties:
+                type: string
+            date_format:
+              type: string
+            validation_summary:
+              $ref: '#/components/schemas/ValidationSummary'
+
+    FilePreview:
+      type: object
+      properties:
+        headers:
+          type: array
+          items:
+            type: string
+        sample_rows:
+          type: array
+          items:
+            type: array
+            items:
+              type: string
+        total_rows:
+          type: integer
+        detected_delimiter:
+          type: string
+        detected_encoding:
+          type: string
+
+    ColumnMappingSuggestion:
+      type: object
+      properties:
+        suggested_mapping:
+          type: object
+          additionalProperties:
+            type: string
+          description: Map of target_field to source_column
+        required_fields:
+          type: array
+          items:
+            type: string
+        missing_fields:
+          type: array
+          items:
+            type: string
+        confidence_scores:
+          type: object
+          additionalProperties:
+            type: number
+            minimum: 0
+            maximum: 1
+          description: Confidence score for each suggested mapping
+
+    ColumnMappingRequest:
+      type: object
+      required: [mapping]
+      properties:
+        mapping:
+          type: object
+          additionalProperties:
+            type: string
+          description: Map of target_field to source_column
+
+    DateFormatDetection:
+      type: object
+      properties:
+        recommended_format:
+          type: string
+          description: Most likely date format
+        formats:
+          type: array
+          items:
+            $ref: '#/components/schemas/DateFormatOption'
+
+    DateFormatOption:
+      type: object
+      properties:
+        format:
+          type: string
+          description: Python strptime format string
+        label:
+          type: string
+          description: Human-readable label
+        success_rate:
+          type: number
+          description: Percentage of samples parsed successfully
+        recommended:
+          type: boolean
+
+    DateFormatPreview:
+      type: object
+      properties:
+        format:
+          type: string
+        format_label:
+          type: string
+        samples:
+          type: array
+          items:
+            $ref: '#/components/schemas/DateSample'
+        success_rate:
+          type: number
+
+    DateSample:
+      type: object
+      properties:
+        raw_value:
+          type: string
+        parsed_date:
+          type: string
+          format: date
+          nullable: true
+        display_date:
+          type: string
+          nullable: true
+        valid:
+          type: boolean
+        error:
+          type: string
+          nullable: true
+
+    ValidationResult:
+      type: object
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        summary:
+          $ref: '#/components/schemas/ValidationSummary'
+        completed_at:
+          type: string
+          format: date-time
+        duration_seconds:
+          type: number
+
+    ValidationSummary:
+      type: object
+      properties:
+        total_rows:
+          type: integer
+        valid_count:
+          type: integer
+        warning_count:
+          type: integer
+        error_count:
+          type: integer
+        info_count:
+          type: integer
+
+    ValidationIssue:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        row_number:
+          type: integer
+        field_name:
+          type: string
+        source_column:
+          type: string
+        severity:
+          type: string
+          enum: [error, warning, info]
+        issue_code:
+          type: string
+        message:
+          type: string
+        suggestion:
+          type: string
+          nullable: true
+        raw_value:
+          type: string
+          nullable: true
+        related_row:
+          type: integer
+          nullable: true
+
+    ValidationIssueList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ValidationIssue'
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    PreviewRow:
+      type: object
+      properties:
+        row_number:
+          type: integer
+        status:
+          type: string
+          enum: [valid, warning, error]
+        original_values:
+          type: object
+          additionalProperties:
+            type: string
+        mapped_values:
+          type: object
+          additionalProperties: {}
+        parsed_dates:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/DateSample'
+        issues:
+          type: array
+          items:
+            $ref: '#/components/schemas/ValidationIssue'
+
+    PreviewRowList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PreviewRow'
+        total:
+          type: integer
+        valid_count:
+          type: integer
+        warning_count:
+          type: integer
+        error_count:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    ImportResult:
+      type: object
+      properties:
+        import_log_id:
+          type: string
+          format: uuid
+        census_id:
+          type: string
+          format: uuid
+        summary:
+          type: object
+          properties:
+            total_rows:
+              type: integer
+            imported_count:
+              type: integer
+            rejected_count:
+              type: integer
+            warning_count:
+              type: integer
+        completed_at:
+          type: string
+          format: date-time
+        duration_seconds:
+          type: number
+
+    MappingProfile:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        column_mapping:
+          type: object
+          additionalProperties:
+            type: string
+        date_format:
+          type: string
+          nullable: true
+        expected_headers:
+          type: array
+          items:
+            type: string
+          nullable: true
+        is_default:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    MappingProfileList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MappingProfile'
+        total:
+          type: integer
+
+    MappingProfileCreate:
+      type: object
+      required: [name, column_mapping]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        column_mapping:
+          type: object
+          additionalProperties:
+            type: string
+        date_format:
+          type: string
+        expected_headers:
+          type: array
+          items:
+            type: string
+        is_default:
+          type: boolean
+          default: false
+
+    MappingProfileUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        column_mapping:
+          type: object
+          additionalProperties:
+            type: string
+        date_format:
+          type: string
+        is_default:
+          type: boolean
+
+    ProfileApplyResult:
+      type: object
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        profile_id:
+          type: string
+          format: uuid
+        applied_mappings:
+          type: object
+          additionalProperties:
+            type: string
+        unmatched_fields:
+          type: array
+          items:
+            type: string
+        success:
+          type: boolean

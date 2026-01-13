@@ -1,5 +1,0 @@
-employee_id,compensation,er_match_amt,ee_pre_tax_amt,ee_after_tax_amt,ee_roth_amt,total_baseline_contributions,baseline_contribution_rate,uses_mega_backdoor,mega_backdoor_contribution,total_contributions,total_contribution_rate,acp_contributions,acp_contribution_rate
-1,250000,7500,15000,5000,2500,30000,12.0,False,0.0,30000.0,12.0,12500.0,5.0
-2,200000,7500,12000,4000,2000,25500,12.75,True,16000.0,41500.0,20.75,27500.0,13.75
-3,180000,7500,10800,3600,1800,23700,13.17,False,0.0,23700.0,13.17,11100.0,6.17
-4,175000,7500,10500,3500,1750,23250,13.29,True,14000.0,37250.0,21.29,25000.0,14.29

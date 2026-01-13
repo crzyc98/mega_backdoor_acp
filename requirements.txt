@@ -32,3 +32,6 @@ httpx>=0.25.0
 
 # YAML parsing (for plan constants)
 pyyaml>=6.0.0
+
+# CLI
+click>=8.1.0

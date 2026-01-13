@@ -1,0 +1,13 @@
+#!/usr/bin/env python3
+"""mega CLI launcher"""
+import sys
+from pathlib import Path
+
+# Add project root to path
+root = Path(__file__).parent.parent.resolve()
+sys.path.insert(0, str(root))
+
+from cli import cli
+
+if __name__ == "__main__":
+    cli()
