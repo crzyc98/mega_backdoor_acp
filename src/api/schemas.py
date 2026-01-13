@@ -603,3 +603,92 @@ class ProfileApplyResult(BaseModel):
     applied_mappings: dict[str, str]
     unmatched_fields: list[str]
     success: bool
+
+
+# ============================================================================
+# Employee Impact Schemas (Feature 006-employee-level-impact)
+# ============================================================================
+
+
+class EmployeeImpactRequest(BaseModel):
+    """Request model for computing employee impact view."""
+    adoption_rate: float = Field(
+        ..., ge=0.0, le=1.0,
+        description="Fraction of HCEs participating (0.0 to 1.0)"
+    )
+    contribution_rate: float = Field(
+        ..., ge=0.0, le=1.0,
+        description="Mega-backdoor contribution as fraction of compensation"
+    )
+    seed: int = Field(
+        ..., ge=1,
+        description="Random seed for HCE selection reproducibility"
+    )
+
+
+class EmployeeImpactResponse(BaseModel):
+    """Response model for individual employee impact."""
+    employee_id: str
+    is_hce: bool
+    compensation: float
+    deferral_amount: float
+    match_amount: float
+    after_tax_amount: float
+    section_415c_limit: int
+    available_room: float
+    mega_backdoor_amount: float
+    requested_mega_backdoor: float
+    individual_acp: float | None = None
+    constraint_status: str
+    constraint_detail: str
+
+
+class EmployeeImpactSummaryResponse(BaseModel):
+    """Response model for group summary statistics."""
+    group: Literal["HCE", "NHCE"]
+    total_count: int
+    at_limit_count: int | None = None
+    reduced_count: int | None = None
+    average_available_room: float | None = None
+    total_mega_backdoor: float | None = None
+    average_individual_acp: float
+    total_match: float
+    total_after_tax: float
+
+
+class EmployeeImpactViewResponse(BaseModel):
+    """Response model for complete employee impact view."""
+    census_id: str
+    adoption_rate: float
+    contribution_rate: float
+    seed_used: int
+    plan_year: int
+    section_415c_limit: int
+    hce_employees: list[EmployeeImpactResponse]
+    nhce_employees: list[EmployeeImpactResponse]
+    hce_summary: EmployeeImpactSummaryResponse
+    nhce_summary: EmployeeImpactSummaryResponse
+
+
+class EmployeeImpactExportRequest(BaseModel):
+    """Request model for exporting employee impact to CSV."""
+    adoption_rate: float = Field(
+        ..., ge=0.0, le=1.0,
+        description="Fraction of HCEs participating"
+    )
+    contribution_rate: float = Field(
+        ..., ge=0.0, le=1.0,
+        description="Mega-backdoor contribution rate"
+    )
+    seed: int = Field(
+        ..., ge=1,
+        description="Random seed for reproducibility"
+    )
+    export_group: Literal["hce", "nhce", "all"] = Field(
+        "all",
+        description="Which group(s) to export"
+    )
+    include_group_column: bool = Field(
+        True,
+        description="Include Group column in export (for 'all' exports)"
+    )

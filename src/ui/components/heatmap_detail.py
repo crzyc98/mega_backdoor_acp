@@ -124,8 +124,27 @@ def render_detail_panel(scenario: dict) -> bool:
         seed = scenario.get("seed_used") or scenario.get("seed", "N/A")
         st.caption(f"**Seed:** {seed}")
 
-        # Close button
+        # Action buttons
         st.divider()
+
+        # View Employee Impact button
+        if st.button(
+            "📊 View Employee Impact",
+            key="view_employee_impact",
+            use_container_width=True,
+            help="See detailed employee-level breakdown for this scenario",
+        ):
+            # Store scenario in session state for employee impact view
+            st.session_state.employee_impact_scenario = {
+                "census_id": scenario.get("census_id"),
+                "adoption_rate": scenario.get("adoption_rate", 0) / 100,  # Convert to fraction
+                "contribution_rate": scenario.get("contribution_rate", 0) / 100,  # Convert to fraction
+                "seed": scenario.get("seed_used") or scenario.get("seed"),
+            }
+            st.session_state.show_employee_impact = True
+            st.rerun()
+
+        # Close button
         if st.button("Close", key="close_detail_panel", use_container_width=True):
             return False
 

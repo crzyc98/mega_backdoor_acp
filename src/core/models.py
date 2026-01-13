@@ -1,15 +1,16 @@
 """
-Pydantic Models for Scenario Analysis (Feature 004).
+Pydantic Models for Scenario Analysis (Feature 004) and Employee Impact (Feature 006).
 
 T002-T012: Core data models for scenario requests, results, grid analysis,
 and debug information.
+T007-T011 (Feature 006): Employee impact models for drill-down views.
 """
 
 from decimal import Decimal
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # T002: Scenario status enumeration
@@ -195,3 +196,236 @@ class GridResult(BaseModel):
     )
     summary: GridSummary = Field(..., description="Aggregate metrics")
     seed_used: int = Field(..., description="Base seed used for all scenarios")
+
+
+# =============================================================================
+# Employee-Level Impact Models (Feature 006-employee-level-impact)
+# =============================================================================
+
+
+# T007: Constraint status enumeration for HCE mega-backdoor contributions
+class ConstraintStatus(str, Enum):
+    """
+    Constraint classification for HCE mega-backdoor contributions.
+
+    - UNCONSTRAINED: Received full requested mega-backdoor amount
+    - AT_LIMIT: Capped by §415(c) annual additions limit
+    - REDUCED: Received partial mega-backdoor due to §415(c) limit
+    - NOT_SELECTED: Not chosen for mega-backdoor adoption in this scenario
+    """
+    UNCONSTRAINED = "Unconstrained"
+    AT_LIMIT = "At §415(c) Limit"
+    REDUCED = "Reduced"
+    NOT_SELECTED = "Not Selected"
+
+
+# T008: Per-employee contribution breakdown model
+class EmployeeImpact(BaseModel):
+    """
+    Per-employee contribution breakdown for employee-level impact view.
+
+    Represents a single participant's contribution details within
+    a specific scenario, including §415(c) limit analysis.
+    """
+    employee_id: str = Field(
+        ...,
+        min_length=1,
+        description="Anonymized identifier from census (internal_id)"
+    )
+    is_hce: bool = Field(
+        ...,
+        description="True if HCE, False if NHCE"
+    )
+    compensation: float = Field(
+        ...,
+        ge=0,
+        description="Annual compensation in dollars"
+    )
+    deferral_amount: float = Field(
+        ...,
+        ge=0,
+        description="Employee deferral contributions in dollars"
+    )
+    match_amount: float = Field(
+        ...,
+        ge=0,
+        description="Employer match contributions in dollars"
+    )
+    after_tax_amount: float = Field(
+        ...,
+        ge=0,
+        description="Existing after-tax contributions in dollars"
+    )
+    section_415c_limit: int = Field(
+        ...,
+        ge=0,
+        description="Applicable §415(c) limit for plan year in dollars"
+    )
+    available_room: float = Field(
+        ...,
+        description="Remaining capacity before hitting §415(c) limit (can be negative)"
+    )
+    mega_backdoor_amount: float = Field(
+        ...,
+        ge=0,
+        description="Computed mega-backdoor contribution for this scenario"
+    )
+    requested_mega_backdoor: float = Field(
+        ...,
+        ge=0,
+        description="Full mega-backdoor amount before any constraints"
+    )
+    individual_acp: float | None = Field(
+        None,
+        ge=0,
+        description="This employee's ACP percentage (None if zero compensation)"
+    )
+    constraint_status: ConstraintStatus = Field(
+        ...,
+        description="Classification of constraint impact"
+    )
+    constraint_detail: str = Field(
+        ...,
+        description="Human-readable explanation of constraint"
+    )
+
+
+# T009: Aggregated summary model for HCE/NHCE groups
+class EmployeeImpactSummary(BaseModel):
+    """
+    Aggregated statistics for HCE or NHCE group.
+
+    Provides summary metrics for display in the summary panel.
+    HCE-specific fields are None for NHCE groups.
+    """
+    group: Literal["HCE", "NHCE"] = Field(
+        ...,
+        description="Which participant group this summarizes"
+    )
+    total_count: int = Field(
+        ...,
+        ge=0,
+        description="Total participants in group"
+    )
+    # HCE-specific fields (None for NHCE)
+    at_limit_count: int | None = Field(
+        None,
+        ge=0,
+        description="Number at §415(c) limit (HCE only)"
+    )
+    reduced_count: int | None = Field(
+        None,
+        ge=0,
+        description="Number with reduced mega-backdoor (HCE only)"
+    )
+    average_available_room: float | None = Field(
+        None,
+        description="Mean available room in dollars (HCE only)"
+    )
+    total_mega_backdoor: float | None = Field(
+        None,
+        ge=0,
+        description="Sum of mega-backdoor amounts (HCE only)"
+    )
+    # Shared fields
+    average_individual_acp: float = Field(
+        ...,
+        ge=0,
+        description="Mean individual ACP percentage"
+    )
+    total_match: float = Field(
+        ...,
+        ge=0,
+        description="Sum of match contributions"
+    )
+    total_after_tax: float = Field(
+        ...,
+        ge=0,
+        description="Sum of after-tax contributions"
+    )
+
+
+# T010: Request model for employee impact computation
+class EmployeeImpactRequest(BaseModel):
+    """
+    Request parameters for computing employee impact view.
+
+    Contains the scenario parameters needed to reproduce
+    HCE selection and compute individual contributions.
+    """
+    census_id: str = Field(
+        ...,
+        description="Reference to census data"
+    )
+    adoption_rate: float = Field(
+        ...,
+        ge=0.0,
+        le=1.0,
+        description="Fraction of HCEs participating (0.0 to 1.0)"
+    )
+    contribution_rate: float = Field(
+        ...,
+        ge=0.0,
+        le=1.0,
+        description="Mega-backdoor contribution as fraction of compensation"
+    )
+    seed: int = Field(
+        ...,
+        ge=1,
+        description="Random seed for HCE selection reproducibility"
+    )
+
+
+# T011: Container model for complete employee impact view
+class EmployeeImpactView(BaseModel):
+    """
+    Complete employee-level impact view for a scenario.
+
+    Contains all participant details and summary statistics
+    for display in the UI.
+    """
+    # Scenario context
+    census_id: str = Field(
+        ...,
+        description="Census this analysis is for"
+    )
+    adoption_rate: float = Field(
+        ...,
+        description="Adoption rate used"
+    )
+    contribution_rate: float = Field(
+        ...,
+        description="Contribution rate used"
+    )
+    seed_used: int = Field(
+        ...,
+        description="Seed used for HCE selection"
+    )
+    plan_year: int = Field(
+        ...,
+        description="Plan year for §415(c) limit lookup"
+    )
+    section_415c_limit: int = Field(
+        ...,
+        description="§415(c) limit applied"
+    )
+
+    # Employee data
+    hce_employees: list[EmployeeImpact] = Field(
+        default_factory=list,
+        description="HCE participant details"
+    )
+    nhce_employees: list[EmployeeImpact] = Field(
+        default_factory=list,
+        description="NHCE participant details"
+    )
+
+    # Summary statistics
+    hce_summary: EmployeeImpactSummary = Field(
+        ...,
+        description="HCE group summary"
+    )
+    nhce_summary: EmployeeImpactSummary = Field(
+        ...,
+        description="NHCE group summary"
+    )
