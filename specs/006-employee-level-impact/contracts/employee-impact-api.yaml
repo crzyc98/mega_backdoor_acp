@@ -1,0 +1,400 @@
+openapi: 3.1.0
+info:
+  title: Employee Impact API Extension
+  description: |
+    API endpoints for employee-level impact views.
+    Extends the existing ACP Sensitivity Analyzer API.
+  version: 1.0.0
+
+paths:
+  /v2/scenario/{census_id}/employee-impact:
+    post:
+      operationId: getEmployeeImpact
+      summary: Get employee-level impact for a scenario
+      description: |
+        Computes and returns employee-level contribution details for a specific
+        scenario configuration. Uses scenario parameters to reproduce HCE selection
+        and calculate individual contributions, constraints, and available room.
+      tags:
+        - Employee Impact
+      parameters:
+        - name: census_id
+          in: path
+          required: true
+          description: Census identifier
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmployeeImpactRequest'
+      responses:
+        '200':
+          description: Employee impact data retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeImpactView'
+        '400':
+          description: Invalid request parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Census not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v2/scenario/{census_id}/employee-impact/export:
+    post:
+      operationId: exportEmployeeImpact
+      summary: Export employee impact to CSV
+      description: |
+        Generates and returns a CSV file containing employee-level impact data.
+        Supports exporting HCE only, NHCE only, or all employees.
+      tags:
+        - Employee Impact
+        - Export
+      parameters:
+        - name: census_id
+          in: path
+          required: true
+          description: Census identifier
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmployeeImpactExportRequest'
+      responses:
+        '200':
+          description: CSV file generated successfully
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+              description: Attachment filename
+        '400':
+          description: Invalid request parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Census not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    ConstraintStatus:
+      type: string
+      enum:
+        - Unconstrained
+        - At §415(c) Limit
+        - Reduced
+        - Not Selected
+      description: Classification of constraint impact on mega-backdoor contribution
+
+    EmployeeImpactRequest:
+      type: object
+      required:
+        - adoption_rate
+        - contribution_rate
+        - seed
+      properties:
+        adoption_rate:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+          description: Fraction of HCEs participating (0.0 to 1.0)
+          example: 0.5
+        contribution_rate:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+          description: Mega-backdoor contribution as fraction of compensation
+          example: 0.06
+        seed:
+          type: integer
+          minimum: 1
+          description: Random seed for HCE selection reproducibility
+          example: 42
+
+    EmployeeImpact:
+      type: object
+      required:
+        - employee_id
+        - is_hce
+        - compensation
+        - deferral_amount
+        - match_amount
+        - after_tax_amount
+        - section_415c_limit
+        - available_room
+        - mega_backdoor_amount
+        - requested_mega_backdoor
+        - constraint_status
+        - constraint_detail
+      properties:
+        employee_id:
+          type: string
+          description: Anonymized participant identifier
+          example: "EMP-001"
+        is_hce:
+          type: boolean
+          description: True if HCE, False if NHCE
+        compensation:
+          type: number
+          format: float
+          minimum: 0
+          description: Annual compensation in dollars
+          example: 180000.00
+        deferral_amount:
+          type: number
+          format: float
+          minimum: 0
+          description: Employee deferral contributions in dollars
+          example: 23000.00
+        match_amount:
+          type: number
+          format: float
+          minimum: 0
+          description: Employer match contributions in dollars
+          example: 9000.00
+        after_tax_amount:
+          type: number
+          format: float
+          minimum: 0
+          description: Existing after-tax contributions in dollars
+          example: 0.00
+        section_415c_limit:
+          type: integer
+          minimum: 0
+          description: Applicable §415(c) limit for plan year
+          example: 69000
+        available_room:
+          type: number
+          format: float
+          description: Remaining capacity before §415(c) limit (can be negative)
+          example: 26200.00
+        mega_backdoor_amount:
+          type: number
+          format: float
+          minimum: 0
+          description: Computed mega-backdoor contribution
+          example: 10800.00
+        requested_mega_backdoor:
+          type: number
+          format: float
+          minimum: 0
+          description: Full mega-backdoor amount before constraints
+          example: 10800.00
+        individual_acp:
+          type: number
+          format: float
+          minimum: 0
+          nullable: true
+          description: This employee's ACP percentage (null if zero compensation)
+          example: 11.0
+        constraint_status:
+          $ref: '#/components/schemas/ConstraintStatus'
+        constraint_detail:
+          type: string
+          description: Human-readable constraint explanation
+          example: "Received full mega-backdoor amount"
+
+    EmployeeImpactSummary:
+      type: object
+      required:
+        - group
+        - total_count
+        - average_individual_acp
+        - total_match
+        - total_after_tax
+      properties:
+        group:
+          type: string
+          enum:
+            - HCE
+            - NHCE
+          description: Which participant group
+        total_count:
+          type: integer
+          minimum: 0
+          description: Total participants in group
+          example: 45
+        at_limit_count:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: Number at §415(c) limit (HCE only)
+          example: 12
+        reduced_count:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: Number with reduced mega-backdoor (HCE only)
+          example: 5
+        average_available_room:
+          type: number
+          format: float
+          nullable: true
+          description: Mean available room in dollars (HCE only)
+          example: 18500.00
+        total_mega_backdoor:
+          type: number
+          format: float
+          minimum: 0
+          nullable: true
+          description: Sum of mega-backdoor amounts (HCE only)
+          example: 324000.00
+        average_individual_acp:
+          type: number
+          format: float
+          minimum: 0
+          description: Mean individual ACP percentage
+          example: 8.75
+        total_match:
+          type: number
+          format: float
+          minimum: 0
+          description: Sum of match contributions
+          example: 405000.00
+        total_after_tax:
+          type: number
+          format: float
+          minimum: 0
+          description: Sum of after-tax contributions
+          example: 12000.00
+
+    EmployeeImpactView:
+      type: object
+      required:
+        - census_id
+        - adoption_rate
+        - contribution_rate
+        - seed_used
+        - plan_year
+        - section_415c_limit
+        - hce_employees
+        - nhce_employees
+        - hce_summary
+        - nhce_summary
+      properties:
+        census_id:
+          type: string
+          description: Census this analysis is for
+        adoption_rate:
+          type: number
+          format: float
+          description: Adoption rate used
+          example: 0.5
+        contribution_rate:
+          type: number
+          format: float
+          description: Contribution rate used
+          example: 0.06
+        seed_used:
+          type: integer
+          description: Seed used for HCE selection
+          example: 42
+        plan_year:
+          type: integer
+          description: Plan year for §415(c) limit
+          example: 2025
+        section_415c_limit:
+          type: integer
+          description: §415(c) limit applied
+          example: 69000
+        hce_employees:
+          type: array
+          items:
+            $ref: '#/components/schemas/EmployeeImpact'
+          description: HCE participant details
+        nhce_employees:
+          type: array
+          items:
+            $ref: '#/components/schemas/EmployeeImpact'
+          description: NHCE participant details
+        hce_summary:
+          $ref: '#/components/schemas/EmployeeImpactSummary'
+        nhce_summary:
+          $ref: '#/components/schemas/EmployeeImpactSummary'
+
+    EmployeeImpactExportRequest:
+      type: object
+      required:
+        - adoption_rate
+        - contribution_rate
+        - seed
+      properties:
+        adoption_rate:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+          description: Fraction of HCEs participating
+        contribution_rate:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+          description: Mega-backdoor contribution rate
+        seed:
+          type: integer
+          minimum: 1
+          description: Random seed for reproducibility
+        export_group:
+          type: string
+          enum:
+            - hce
+            - nhce
+            - all
+          default: all
+          description: Which group(s) to export
+        include_group_column:
+          type: boolean
+          default: true
+          description: Include Group column in export (for 'all' exports)
+
+    Error:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Error code
+        message:
+          type: string
+          description: Human-readable error message
+
+tags:
+  - name: Employee Impact
+    description: Employee-level impact analysis endpoints
+  - name: Export
+    description: Data export endpoints

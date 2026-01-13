@@ -30,9 +30,9 @@ cd src [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECHNOLO
 Python 3.11+: Follow standard conventions
 
 ## Recent Changes
+- 006-employee-level-impact: Added Python 3.11+ + FastAPI 0.100+, Streamlit 1.28+, pandas 2.0+, pydantic 2.0+
 - 005-heatmap-exploration: Added Python 3.11+ + Streamlit 1.28+, Plotly 5.15+, pandas 2.0+, pydantic 2.0+
 - 004-scenario-analysis: Added Python 3.11+ + FastAPI 0.100+, pandas 2.0+, pydantic 2.0+, numpy
-- 003-csv-import-wizard: Added Python 3.11+ + FastAPI 0.100+, Streamlit 1.28+, pandas 2.0+, pydantic 2.0+
 
 
 <!-- MANUAL ADDITIONS START -->

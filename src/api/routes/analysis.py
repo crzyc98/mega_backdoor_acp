@@ -1,14 +1,17 @@
 """
 Analysis API Routes.
 
-Handles single scenario analysis, grid analysis, and results retrieval.
+Handles single scenario analysis, grid analysis, results retrieval,
+and employee-level impact views.
 """
 
+import io
 import time
 import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Request, status
+from fastapi.responses import StreamingResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
@@ -30,6 +33,12 @@ from src.api.schemas import (
     DebugDetailsResponse,
     ParticipantContributionResponse,
     IntermediateValuesResponse,
+    # T022: Employee impact schemas
+    EmployeeImpactRequest,
+    EmployeeImpactResponse,
+    EmployeeImpactSummaryResponse,
+    EmployeeImpactViewResponse,
+    EmployeeImpactExportRequest,
 )
 from src.core.constants import RATE_LIMIT, SYSTEM_VERSION
 from src.core.scenario_runner import run_single_scenario, run_grid_scenarios, run_single_scenario_v2, run_grid_scenarios_v2
@@ -43,6 +52,7 @@ from src.storage.repository import (
     GridAnalysisRepository,
     ParticipantRepository,
 )
+from src.core.employee_impact import EmployeeImpactService
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
@@ -551,4 +561,220 @@ async def run_grid_v2(
             worst_margin=result.summary.worst_margin,
         ),
         seed_used=result.seed_used,
+    )
+
+
+# ============================================================================
+# Employee Impact Endpoints (Feature 006-employee-level-impact)
+# ============================================================================
+
+
+@router.post(
+    "/v2/scenario/{census_id}/employee-impact",
+    response_model=EmployeeImpactViewResponse,
+    summary="Get employee-level impact view",
+    description=(
+        "Compute and return employee-level contribution breakdown for a scenario. "
+        "Shows individual ACP contributions, constraint status, and group summaries."
+    ),
+    responses={
+        400: {"model": Error, "description": "Invalid parameters"},
+        404: {"model": Error, "description": "Census not found"},
+        429: {"model": Error, "description": "Rate limit exceeded"},
+    },
+)
+@limiter.limit(RATE_LIMIT)
+async def get_employee_impact(
+    request: Request,
+    census_id: str,
+    impact_request: EmployeeImpactRequest,
+) -> EmployeeImpactViewResponse:
+    """T023: Get employee-level impact view endpoint."""
+    conn = get_db()
+
+    # Initialize repositories
+    census_repo = CensusRepository(conn)
+    participant_repo = ParticipantRepository(conn)
+
+    # Verify census exists
+    census = census_repo.get(census_id)
+    if census is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Census {census_id} not found",
+        )
+
+    # Compute employee impact
+    service = EmployeeImpactService(participant_repo, census_repo)
+    result = service.compute_impact(
+        census_id=census_id,
+        adoption_rate=impact_request.adoption_rate,
+        contribution_rate=impact_request.contribution_rate,
+        seed=impact_request.seed,
+    )
+
+    # Convert to API response format
+    return EmployeeImpactViewResponse(
+        census_id=result.census_id,
+        adoption_rate=result.adoption_rate,
+        contribution_rate=result.contribution_rate,
+        seed_used=result.seed_used,
+        plan_year=result.plan_year,
+        section_415c_limit=result.section_415c_limit,
+        hce_employees=[
+            EmployeeImpactResponse(
+                employee_id=e.employee_id,
+                is_hce=e.is_hce,
+                compensation=e.compensation,
+                deferral_amount=e.deferral_amount,
+                match_amount=e.match_amount,
+                after_tax_amount=e.after_tax_amount,
+                section_415c_limit=e.section_415c_limit,
+                available_room=e.available_room,
+                mega_backdoor_amount=e.mega_backdoor_amount,
+                requested_mega_backdoor=e.requested_mega_backdoor,
+                individual_acp=e.individual_acp,
+                constraint_status=e.constraint_status.value,
+                constraint_detail=e.constraint_detail,
+            )
+            for e in result.hce_employees
+        ],
+        nhce_employees=[
+            EmployeeImpactResponse(
+                employee_id=e.employee_id,
+                is_hce=e.is_hce,
+                compensation=e.compensation,
+                deferral_amount=e.deferral_amount,
+                match_amount=e.match_amount,
+                after_tax_amount=e.after_tax_amount,
+                section_415c_limit=e.section_415c_limit,
+                available_room=e.available_room,
+                mega_backdoor_amount=e.mega_backdoor_amount,
+                requested_mega_backdoor=e.requested_mega_backdoor,
+                individual_acp=e.individual_acp,
+                constraint_status=e.constraint_status.value,
+                constraint_detail=e.constraint_detail,
+            )
+            for e in result.nhce_employees
+        ],
+        hce_summary=EmployeeImpactSummaryResponse(
+            group=result.hce_summary.group,
+            total_count=result.hce_summary.total_count,
+            at_limit_count=result.hce_summary.at_limit_count,
+            reduced_count=result.hce_summary.reduced_count,
+            average_available_room=result.hce_summary.average_available_room,
+            total_mega_backdoor=result.hce_summary.total_mega_backdoor,
+            average_individual_acp=result.hce_summary.average_individual_acp,
+            total_match=result.hce_summary.total_match,
+            total_after_tax=result.hce_summary.total_after_tax,
+        ),
+        nhce_summary=EmployeeImpactSummaryResponse(
+            group=result.nhce_summary.group,
+            total_count=result.nhce_summary.total_count,
+            at_limit_count=result.nhce_summary.at_limit_count,
+            reduced_count=result.nhce_summary.reduced_count,
+            average_available_room=result.nhce_summary.average_available_room,
+            total_mega_backdoor=result.nhce_summary.total_mega_backdoor,
+            average_individual_acp=result.nhce_summary.average_individual_acp,
+            total_match=result.nhce_summary.total_match,
+            total_after_tax=result.nhce_summary.total_after_tax,
+        ),
+    )
+
+
+@router.post(
+    "/v2/scenario/{census_id}/employee-impact/export",
+    summary="Export employee-level impact to CSV",
+    description=(
+        "Export employee-level impact data as a CSV file. "
+        "Supports filtering by group and optional Group column."
+    ),
+    responses={
+        400: {"model": Error, "description": "Invalid parameters"},
+        404: {"model": Error, "description": "Census not found"},
+        429: {"model": Error, "description": "Rate limit exceeded"},
+    },
+)
+@limiter.limit(RATE_LIMIT)
+async def export_employee_impact(
+    request: Request,
+    census_id: str,
+    export_request: EmployeeImpactExportRequest,
+) -> StreamingResponse:
+    """T059: Export employee-level impact to CSV endpoint."""
+    conn = get_db()
+
+    # Initialize repositories
+    census_repo = CensusRepository(conn)
+    participant_repo = ParticipantRepository(conn)
+
+    # Verify census exists
+    census = census_repo.get(census_id)
+    if census is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Census {census_id} not found",
+        )
+
+    # Compute employee impact
+    service = EmployeeImpactService(participant_repo, census_repo)
+    result = service.compute_impact(
+        census_id=census_id,
+        adoption_rate=export_request.adoption_rate,
+        contribution_rate=export_request.contribution_rate,
+        seed=export_request.seed,
+    )
+
+    # Determine which employees to include
+    employees = []
+    if export_request.export_group in ("hce", "all"):
+        employees.extend(result.hce_employees)
+    if export_request.export_group in ("nhce", "all"):
+        employees.extend(result.nhce_employees)
+
+    # Generate CSV content
+    csv_buffer = io.StringIO()
+
+    # Build header
+    headers = ["Employee ID"]
+    if export_request.include_group_column and export_request.export_group == "all":
+        headers.append("Group")
+    headers.extend([
+        "Compensation",
+        "Deferral",
+        "Match",
+        "After-Tax",
+        "Mega-Backdoor",
+        "Individual ACP (%)",
+        "Available Room",
+        "Constraint Status",
+    ])
+
+    csv_buffer.write(",".join(headers) + "\n")
+
+    # Write employee rows
+    for emp in employees:
+        row = [emp.employee_id]
+        if export_request.include_group_column and export_request.export_group == "all":
+            row.append("HCE" if emp.is_hce else "NHCE")
+        row.extend([
+            f"{emp.compensation:.2f}",
+            f"{emp.deferral_amount:.2f}",
+            f"{emp.match_amount:.2f}",
+            f"{emp.after_tax_amount:.2f}",
+            f"{emp.mega_backdoor_amount:.2f}",
+            f"{emp.individual_acp:.2f}" if emp.individual_acp is not None else "",
+            f"{emp.available_room:.2f}",
+            emp.constraint_status.value,
+        ])
+        csv_buffer.write(",".join(row) + "\n")
+
+    # Return CSV as streaming response
+    csv_buffer.seek(0)
+    return StreamingResponse(
+        iter([csv_buffer.getvalue()]),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f"attachment; filename=employee_impact_{census_id}.csv"
+        },
     )
