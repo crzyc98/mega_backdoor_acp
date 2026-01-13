@@ -1,0 +1,581 @@
+openapi: 3.1.0
+info:
+  title: ACP Analyzer - Workspace API
+  description: Workspace management endpoints for the React frontend migration
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8000
+    description: Local development server
+
+paths:
+  /api/workspaces:
+    get:
+      operationId: listWorkspaces
+      summary: List all workspaces
+      description: Returns all workspaces sorted by updated_at descending
+      tags:
+        - Workspaces
+      responses:
+        '200':
+          description: List of workspaces
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceListResponse'
+
+    post:
+      operationId: createWorkspace
+      summary: Create a new workspace
+      tags:
+        - Workspaces
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkspaceCreate'
+      responses:
+        '201':
+          description: Workspace created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workspace'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/workspaces/{workspace_id}:
+    parameters:
+      - name: workspace_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Workspace UUID
+
+    get:
+      operationId: getWorkspace
+      summary: Get workspace details
+      tags:
+        - Workspaces
+      responses:
+        '200':
+          description: Workspace details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceDetail'
+        '404':
+          description: Workspace not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    put:
+      operationId: updateWorkspace
+      summary: Update workspace metadata
+      tags:
+        - Workspaces
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkspaceUpdate'
+      responses:
+        '200':
+          description: Workspace updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workspace'
+        '404':
+          description: Workspace not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      operationId: deleteWorkspace
+      summary: Delete workspace and all its data
+      tags:
+        - Workspaces
+      responses:
+        '204':
+          description: Workspace deleted
+        '404':
+          description: Workspace not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/workspaces/{workspace_id}/census:
+    parameters:
+      - name: workspace_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+
+    post:
+      operationId: uploadCensus
+      summary: Upload census CSV to workspace
+      tags:
+        - Workspaces
+        - Census
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+                - plan_year
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: CSV file
+                plan_year:
+                  type: integer
+                  minimum: 2020
+                  maximum: 2100
+                column_mapping:
+                  type: string
+                  description: JSON string of column mappings
+                hce_mode:
+                  type: string
+                  enum: [explicit, compensation_threshold]
+                  default: explicit
+      responses:
+        '201':
+          description: Census uploaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CensusSummary'
+        '400':
+          description: Invalid file or parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    get:
+      operationId: getWorkspaceCensus
+      summary: Get census data for workspace
+      tags:
+        - Workspaces
+        - Census
+      responses:
+        '200':
+          description: Census data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CensusSummary'
+        '404':
+          description: No census uploaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/workspaces/{workspace_id}/runs:
+    parameters:
+      - name: workspace_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+
+    get:
+      operationId: listRuns
+      summary: List analysis runs for workspace
+      tags:
+        - Workspaces
+        - Runs
+      responses:
+        '200':
+          description: List of runs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunListResponse'
+
+    post:
+      operationId: createRun
+      summary: Execute a new grid analysis
+      tags:
+        - Workspaces
+        - Runs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RunCreate'
+      responses:
+        '201':
+          description: Run created and started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Run'
+        '400':
+          description: Invalid parameters or no census
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/workspaces/{workspace_id}/runs/{run_id}:
+    parameters:
+      - name: workspace_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+
+    get:
+      operationId: getRun
+      summary: Get run details with results
+      tags:
+        - Workspaces
+        - Runs
+      responses:
+        '200':
+          description: Run with results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunDetail'
+        '404':
+          description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      operationId: deleteRun
+      summary: Delete a run and its results
+      tags:
+        - Workspaces
+        - Runs
+      responses:
+        '204':
+          description: Run deleted
+        '404':
+          description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    Workspace:
+      type: object
+      required:
+        - id
+        - name
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 255
+        description:
+          type: string
+          maxLength: 1000
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    WorkspaceDetail:
+      allOf:
+        - $ref: '#/components/schemas/Workspace'
+        - type: object
+          properties:
+            has_census:
+              type: boolean
+            census_summary:
+              $ref: '#/components/schemas/CensusSummary'
+            run_count:
+              type: integer
+            recent_runs:
+              type: array
+              items:
+                $ref: '#/components/schemas/Run'
+              maxItems: 5
+
+    WorkspaceCreate:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+          maxLength: 1000
+
+    WorkspaceUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+          maxLength: 1000
+
+    WorkspaceListResponse:
+      type: object
+      required:
+        - items
+        - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Workspace'
+        total:
+          type: integer
+
+    CensusSummary:
+      type: object
+      required:
+        - id
+        - plan_year
+        - participant_count
+        - hce_count
+        - nhce_count
+      properties:
+        id:
+          type: string
+        plan_year:
+          type: integer
+        participant_count:
+          type: integer
+        hce_count:
+          type: integer
+        nhce_count:
+          type: integer
+        avg_compensation:
+          type: number
+        upload_timestamp:
+          type: string
+          format: date-time
+
+    Run:
+      type: object
+      required:
+        - id
+        - workspace_id
+        - adoption_rates
+        - contribution_rates
+        - seed
+        - status
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 255
+        adoption_rates:
+          type: array
+          items:
+            type: number
+            minimum: 0
+            maximum: 1
+          minItems: 2
+          maxItems: 20
+        contribution_rates:
+          type: array
+          items:
+            type: number
+            minimum: 0
+            maximum: 1
+          minItems: 2
+          maxItems: 20
+        seed:
+          type: integer
+          minimum: 1
+        status:
+          type: string
+          enum: [PENDING, RUNNING, COMPLETED, FAILED]
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+
+    RunDetail:
+      allOf:
+        - $ref: '#/components/schemas/Run'
+        - type: object
+          properties:
+            results:
+              $ref: '#/components/schemas/GridResult'
+
+    RunCreate:
+      type: object
+      required:
+        - adoption_rates
+        - contribution_rates
+      properties:
+        name:
+          type: string
+          maxLength: 255
+        adoption_rates:
+          type: array
+          items:
+            type: number
+            minimum: 0
+            maximum: 1
+          minItems: 2
+          maxItems: 20
+        contribution_rates:
+          type: array
+          items:
+            type: number
+            minimum: 0
+            maximum: 1
+          minItems: 2
+          maxItems: 20
+        seed:
+          type: integer
+          minimum: 1
+
+    RunListResponse:
+      type: object
+      required:
+        - items
+        - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Run'
+        total:
+          type: integer
+
+    GridResult:
+      type: object
+      required:
+        - scenarios
+        - summary
+        - seed_used
+      properties:
+        scenarios:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScenarioResult'
+        summary:
+          $ref: '#/components/schemas/GridSummary'
+        seed_used:
+          type: integer
+
+    ScenarioResult:
+      type: object
+      required:
+        - status
+        - adoption_rate
+        - contribution_rate
+        - seed_used
+      properties:
+        status:
+          type: string
+          enum: [PASS, RISK, FAIL, ERROR]
+        nhce_acp:
+          type: number
+        hce_acp:
+          type: number
+        max_allowed_acp:
+          type: number
+        margin:
+          type: number
+        adoption_rate:
+          type: number
+        contribution_rate:
+          type: number
+        seed_used:
+          type: integer
+
+    GridSummary:
+      type: object
+      required:
+        - pass_count
+        - risk_count
+        - fail_count
+        - error_count
+        - total_count
+      properties:
+        pass_count:
+          type: integer
+        risk_count:
+          type: integer
+        fail_count:
+          type: integer
+        error_count:
+          type: integer
+        total_count:
+          type: integer
+        first_failure_point:
+          type: object
+          properties:
+            adoption_rate:
+              type: number
+            contribution_rate:
+              type: number
+        max_safe_contribution:
+          type: number
+        worst_margin:
+          type: number
+
+    Error:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+        message:
+          type: string

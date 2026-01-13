@@ -211,3 +211,18 @@ settings.json
 secrets.json
 .env.local
 .env.production
+
+# Node.js / Frontend
+node_modules/
+dist/
+build/
+.npm
+.eslintcache
+.parcel-cache
+.next/
+.nuxt/
+.cache/
+*.tsbuildinfo
+
+# Vite
+vite.config.ts.timestamp-*

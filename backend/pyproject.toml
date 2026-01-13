@@ -1,18 +1,36 @@
 [project]
-name = "acp-sensitivity-analyzer"
+name = "acp-analyzer-backend"
 version = "1.0.0"
-description = "ACP Sensitivity Analyzer for Mega-Backdoor Roth Compliance Testing"
+description = "ACP Sensitivity Analyzer Backend API"
 requires-python = ">=3.11"
 dependencies = [
-    "click>=8.1.0",
     "fastapi>=0.104.0",
     "uvicorn[standard]>=0.24.0",
-    "streamlit>=1.28.0",
+    "python-multipart>=0.0.6",
     "pandas>=2.0.0",
     "numpy>=1.24.0",
-    "plotly>=5.15.0",
     "pydantic>=2.0.0",
+    "slowapi>=0.1.9",
+    "reportlab>=4.0.0",
+    "pyyaml>=6.0.0",
 ]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "pytest-asyncio>=0.21.0",
+    "httpx>=0.25.0",
+    "ruff>=0.1.0",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -33,7 +51,7 @@ markers = [
 asyncio_mode = "auto"
 
 [tool.coverage.run]
-source = ["src"]
+source = ["app"]
 branch = true
 omit = [
     "*/tests/*",
@@ -66,4 +84,4 @@ ignore = [
 ]
 
 [tool.ruff.isort]
-known-first-party = ["src"]
+known-first-party = ["app"]

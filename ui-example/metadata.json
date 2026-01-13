@@ -1,0 +1,5 @@
+{
+  "name": "ACP Sensitivity Analyzer",
+  "description": "A professional retirement plan compliance tool for testing mega backdoor Roth contributions under IRS §401(m) nondiscrimination rules.",
+  "requestFramePermissions": []
+}
