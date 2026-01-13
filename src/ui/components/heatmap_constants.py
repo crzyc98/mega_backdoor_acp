@@ -3,14 +3,18 @@ Heatmap Constants Module.
 
 Defines colors, icons, and configuration for heatmap visualization.
 WCAG 2.1 AA compliant color palette with verified contrast ratios.
+Uses theme colors for consistency with the rest of the application.
 """
 
-# Status colors (WCAG 2.1 AA compliant - all verified ≥4.5:1 contrast)
+from src.ui.theme.colors import COLORS
+
+# Status colors - using theme colors for consistency
+# WCAG 2.1 AA compliant with verified contrast ratios
 STATUS_COLORS = {
-    "PASS": {"bg": "#22C55E", "text": "#000000"},   # Green background, black text (5.81:1)
-    "RISK": {"bg": "#F59E0B", "text": "#000000"},   # Amber background, black text (5.32:1)
-    "FAIL": {"bg": "#EF4444", "text": "#FFFFFF"},   # Red background, white text (4.53:1)
-    "ERROR": {"bg": "#9CA3AF", "text": "#000000"},  # Gray background, black text (4.68:1)
+    "PASS": {"bg": COLORS.success, "text": "#000000"},     # Emerald background, black text
+    "RISK": {"bg": COLORS.warning, "text": "#000000"},     # Amber background, black text
+    "FAIL": {"bg": COLORS.error, "text": "#FFFFFF"},       # Rose background, white text
+    "ERROR": {"bg": COLORS.gray_400, "text": "#000000"},   # Gray background, black text
 }
 
 # Status icons (Unicode characters for accessibility)
@@ -32,19 +36,20 @@ STATUS_VALUES = {
 }
 
 # T049: Color for missing data cells (light diagonal stripe pattern via lighter gray)
-# T052: WCAG 2.1 AA verified - black text on #E5E7EB has 12.6:1 contrast ratio
-MISSING_DATA_COLOR = "#E5E7EB"  # Gray-200 - lighter than ERROR to distinguish
+# Using theme gray-200 for consistency
+MISSING_DATA_COLOR = COLORS.gray_200
 
 # Custom colorscale for Pass/Fail categorical heatmap
+# Uses theme colors for visual consistency
 # T049: Extended to handle missing data at -1
 # Maps: -1=MISSING(light gray), 0=ERROR(gray), 1=FAIL(red), 2=RISK(amber), 3=PASS(green)
 # Normalized for range [-1, 3]: -1→0, 0→0.25, 1→0.5, 2→0.75, 3→1.0
 PASS_FAIL_COLORSCALE = [
-    [0.0, "#E5E7EB"],    # MISSING - light gray (T049)
-    [0.25, "#9CA3AF"],   # ERROR - gray
-    [0.5, "#EF4444"],    # FAIL - red
-    [0.75, "#F59E0B"],   # RISK - amber
-    [1.0, "#22C55E"],    # PASS - green
+    [0.0, COLORS.gray_200],     # MISSING - light gray (T049)
+    [0.25, COLORS.gray_400],    # ERROR - gray
+    [0.5, COLORS.error],        # FAIL - rose
+    [0.75, COLORS.warning],     # RISK - amber
+    [1.0, COLORS.success],      # PASS - emerald
 ]
 
 # View mode configurations
@@ -73,10 +78,10 @@ VIEW_MODE_CONFIG = {
     },
 }
 
-# Focus indicator style for keyboard navigation
+# Focus indicator style for keyboard navigation - using theme primary color
 FOCUS_STYLE = {
     "border_width": "2px",
-    "border_color": "#1E40AF",  # Blue-800 for high contrast
+    "border_color": COLORS.primary,
     "border_style": "solid",
 }
 

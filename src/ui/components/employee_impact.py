@@ -11,20 +11,22 @@ from typing import Literal
 import pandas as pd
 import streamlit as st
 
+from src.ui.theme.colors import COLORS
 
-# Constraint status icons and colors for display
+
+# Constraint status icons and colors for display - using theme colors
 CONSTRAINT_ICONS = {
     "Unconstrained": "✓",
-    "At §415(c) Limit": "⚠️",
+    "At §415(c) Limit": "!",
     "Reduced": "↓",
     "Not Selected": "—",
 }
 
 CONSTRAINT_COLORS = {
-    "Unconstrained": "#28a745",  # Green
-    "At §415(c) Limit": "#dc3545",  # Red
-    "Reduced": "#ffc107",  # Yellow/Amber
-    "Not Selected": "#6c757d",  # Gray
+    "Unconstrained": COLORS.success,      # Emerald
+    "At §415(c) Limit": COLORS.error,     # Rose
+    "Reduced": COLORS.warning,            # Amber
+    "Not Selected": COLORS.gray_400,      # Gray
 }
 
 
