@@ -15,6 +15,8 @@ Auto-generated from all feature plans. Last updated: 2026-01-12
 - File-based workspace storage (~/.acp-analyzer/workspaces/{uuid}/) (008-react-frontend-migration)
 - Python 3.11+ (backend), TypeScript 5.7+ (frontend) + FastAPI 0.104+, React 19, React Router 7, Vite 6, pandas 2.0+, pydantic 2.0+ (009-csv-upload-wizard)
 - File-based workspace storage (~/.acp-analyzer/workspaces/{uuid}/), SQLite for sessions (009-csv-upload-wizard)
+- Python 3.11+, TypeScript 5.8+ + FastAPI 0.100+, React 19, Pydantic 2.0+, pandas 2.0+ (010-acp-limits-visibility)
+- File-based JSON workspaces (~/.acp-analyzer/workspaces/{uuid}/) (010-acp-limits-visibility)
 
 - Python 3.11+ + Streamlit 1.28+, pandas 2.0+, numpy, plotly 5.15+, FastAPI (API layer), SQLite (via sqlite3), pydantic (001-acp-sensitivity-analyzer)
 
@@ -34,9 +36,9 @@ cd src [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECHNOLO
 Python 3.11+: Follow standard conventions
 
 ## Recent Changes
+- 010-acp-limits-visibility: Added Python 3.11+, TypeScript 5.8+ + FastAPI 0.100+, React 19, Pydantic 2.0+, pandas 2.0+
 - 009-csv-upload-wizard: Added Python 3.11+ (backend), TypeScript 5.7+ (frontend) + FastAPI 0.104+, React 19, React Router 7, Vite 6, pandas 2.0+, pydantic 2.0+
 - 008-react-frontend-migration: Added File-based workspace storage (~/.acp-analyzer/workspaces/{uuid}/)
-- 007-ui-style-update: Added Python 3.11+ + Streamlit 1.28+, Plotly 5.15+, pandas 2.0+, pydantic 2.0+
 
 
 <!-- MANUAL ADDITIONS START -->

@@ -12,14 +12,19 @@ Provides endpoints for the CSV import wizard workflow including:
 - Import logs
 """
 
+import io
 import os
 import tempfile
 import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+
+from app.models.census import CensusSummary as CensusSummaryModel
+from app.storage.workspace_storage import get_workspace_storage
 
 from app.routers.schemas import (
     ColumnMappingRequest,
@@ -934,10 +939,127 @@ async def execute_import(
         created_at=start_time,
     )
 
-    # TODO: Implement actual census creation
-    # For now, just calculate the counts
+    # Calculate counts
     imported_count = total_rows - error_count
     rejected_count = error_count
+
+    # Create census from imported data
+    census_id = ""
+    if session.workspace_id and session.file_reference and imported_count > 0:
+        try:
+            import pandas as pd
+            import hashlib
+            storage = get_workspace_storage()
+            workspace_uuid = UUID(session.workspace_id)
+
+            # Verify workspace exists
+            workspace = storage.get_workspace(workspace_uuid)
+            if workspace:
+                # Read the CSV file
+                csv_path = Path(session.file_reference)
+                if csv_path.exists():
+                    csv_text = csv_path.read_text(encoding="utf-8")
+
+                    # Read CSV
+                    df = pd.read_csv(io.StringIO(csv_text))
+
+                    # Apply column mapping to transform raw data
+                    mapping = session.column_mapping or {}
+
+                    # Create processed dataframe with expected columns
+                    processed_df = pd.DataFrame()
+
+                    # Generate internal_id from SSN (hashed)
+                    ssn_col = mapping.get("ssn")
+                    if ssn_col and ssn_col in df.columns:
+                        census_salt = str(uuid4())[:8]
+                        processed_df["internal_id"] = df[ssn_col].apply(
+                            lambda x: hashlib.sha256(f"{x}{census_salt}".encode()).hexdigest()[:16]
+                        )
+                    else:
+                        processed_df["internal_id"] = [f"p{i}" for i in range(len(df))]
+
+                    # Map compensation (convert to cents)
+                    comp_col = mapping.get("compensation")
+                    if comp_col and comp_col in df.columns:
+                        processed_df["compensation"] = df[comp_col]
+                        processed_df["compensation_cents"] = (df[comp_col] * 100).astype(int)
+                    else:
+                        processed_df["compensation"] = 0
+                        processed_df["compensation_cents"] = 0
+
+                    # Determine HCE status based on compensation threshold
+                    hce_threshold = 155000 if request.plan_year >= 2024 else 150000
+                    processed_df["is_hce"] = processed_df["compensation"] >= hce_threshold
+
+                    # Map contribution columns (convert to cents)
+                    pre_tax_col = mapping.get("employee_pre_tax")
+                    if pre_tax_col and pre_tax_col in df.columns:
+                        processed_df["pre_tax_cents"] = (df[pre_tax_col] * 100).astype(int)
+                    else:
+                        processed_df["pre_tax_cents"] = 0
+
+                    after_tax_col = mapping.get("employee_after_tax")
+                    if after_tax_col and after_tax_col in df.columns:
+                        processed_df["after_tax_cents"] = (df[after_tax_col] * 100).astype(int)
+                    else:
+                        processed_df["after_tax_cents"] = 0
+
+                    roth_col = mapping.get("employee_roth")
+                    if roth_col and roth_col in df.columns:
+                        processed_df["roth_cents"] = (df[roth_col] * 100).astype(int)
+                    else:
+                        processed_df["roth_cents"] = 0
+
+                    match_col = mapping.get("employer_match")
+                    if match_col and match_col in df.columns:
+                        processed_df["match_cents"] = (df[match_col] * 100).astype(int)
+                    else:
+                        processed_df["match_cents"] = 0
+
+                    non_elective_col = mapping.get("employer_non_elective")
+                    if non_elective_col and non_elective_col in df.columns:
+                        processed_df["non_elective_cents"] = (df[non_elective_col] * 100).astype(int)
+                    else:
+                        processed_df["non_elective_cents"] = 0
+
+                    # Calculate deferral_rate (pre_tax / compensation)
+                    processed_df["deferral_rate"] = 0.0
+                    mask = processed_df["compensation"] > 0
+                    if mask.any() and pre_tax_col and pre_tax_col in df.columns:
+                        processed_df.loc[mask, "deferral_rate"] = (
+                            df.loc[mask, pre_tax_col] / processed_df.loc[mask, "compensation"]
+                        )
+
+                    # Save processed census data as CSV
+                    processed_csv = processed_df.to_csv(index=False)
+                    storage.save_census_data(workspace_uuid, processed_csv)
+
+                    # Calculate statistics
+                    participant_count = len(processed_df)
+                    hce_count = int(processed_df["is_hce"].sum())
+                    nhce_count = participant_count - hce_count
+                    avg_compensation = float(processed_df["compensation"].mean()) if participant_count > 0 else 0.0
+
+                    # Create and save summary
+                    census_id = str(uuid4())
+                    census_summary = CensusSummaryModel(
+                        id=census_id,
+                        plan_year=request.plan_year,
+                        participant_count=participant_count,
+                        hce_count=hce_count,
+                        nhce_count=nhce_count,
+                        avg_compensation=avg_compensation,
+                        upload_timestamp=datetime.utcnow(),
+                    )
+                    storage.save_census_summary(workspace_uuid, census_summary)
+                    # Note: Not setting import_log.census_id because census is stored
+                    # in workspace files, not in the SQLite database that import_log references
+        except Exception as e:
+            # Log but don't fail the import
+            import traceback
+            print(f"Warning: Failed to save census: {e}")
+            traceback.print_exc()
 
     # Update log with results
     import_log.imported_count = imported_count
@@ -956,7 +1078,7 @@ async def execute_import(
 
     return ImportResult(
         import_log_id=import_log.id,
-        census_id=import_log.census_id or "",
+        census_id=census_id,  # From workspace file storage, not import_log
         summary={
             "total_rows": total_rows,
             "imported_count": imported_count,

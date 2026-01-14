@@ -597,8 +597,8 @@ class ImportSessionRepository:
                 id, user_id, created_at, updated_at, expires_at, current_step,
                 file_reference, original_filename, file_size_bytes, row_count,
                 headers, column_mapping, validation_results, duplicate_resolution,
-                import_result_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                import_result_id, workspace_id, date_format
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 data["id"],
@@ -616,6 +616,8 @@ class ImportSessionRepository:
                 data["validation_results"],
                 data["duplicate_resolution"],
                 data["import_result_id"],
+                data.get("workspace_id"),
+                data.get("date_format"),
             ),
         )
         self.conn.commit()
@@ -638,7 +640,9 @@ class ImportSessionRepository:
                 column_mapping = ?,
                 validation_results = ?,
                 duplicate_resolution = ?,
-                import_result_id = ?
+                import_result_id = ?,
+                workspace_id = ?,
+                date_format = ?
             WHERE id = ?
             """,
             (
@@ -653,6 +657,8 @@ class ImportSessionRepository:
                 data["validation_results"],
                 data["duplicate_resolution"],
                 data["import_result_id"],
+                data.get("workspace_id"),
+                data.get("date_format"),
                 data["id"],
             ),
         )

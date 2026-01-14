@@ -229,10 +229,14 @@ cd frontend && npm run dev
 
 This tool implements ACP testing per **IRC Section 401(m)**:
 
-- **Dual test formula**: `max(NHCE_ACP × 1.25, NHCE_ACP + 2.0%)`
+- **Dual test formula**: `max(NHCE_ACP × 1.25, min(NHCE_ACP + 2.0%, 2 × NHCE_ACP))`
 - **HCE determination**: Per IRS compensation thresholds by plan year
 - **§415(c) limits**: Annual additions cap per participant
 - **§401(a)(17)**: Compensation limit enforcement
+
+The response includes `binding_rule` to show whether the effective limit came from the 1.25x test or the capped 2%/2x test.
+
+Rounding: calculations are kept in decimal precision internally, while UI/CSV/PDF display ACP values in percentage points with two decimals (basis points).
 
 ### Status Classifications
 

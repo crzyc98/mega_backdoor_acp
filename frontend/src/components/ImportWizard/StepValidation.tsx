@@ -3,7 +3,7 @@
  * Displays color-coded validation status for each row with error details.
  */
 
-import { useState, useCallback } from 'react'
+import React, { useState, useCallback } from 'react'
 import LoadingSpinner from '../LoadingSpinner'
 import importWizardService from '../../services/importWizardService'
 import type {
@@ -192,9 +192,8 @@ export default function StepValidation({
               </thead>
               <tbody>
                 {previewRows.items.map((row) => (
-                  <>
+                  <React.Fragment key={row.row_number}>
                     <tr
-                      key={row.row_number}
                       className={`cursor-pointer hover:bg-gray-100 ${
                         expandedRow === row.row_number ? 'bg-gray-100' : 'bg-white'
                       }`}
@@ -218,7 +217,7 @@ export default function StepValidation({
                         </span>
                       </td>
                       <td className="px-3 py-2 text-gray-600">
-                        {row.issues.length === 0 ? (
+                        {!row.issues || row.issues.length === 0 ? (
                           <span className="text-gray-400">No issues</span>
                         ) : (
                           <span>
@@ -228,7 +227,7 @@ export default function StepValidation({
                         )}
                       </td>
                     </tr>
-                    {expandedRow === row.row_number && row.issues.length > 0 && (
+                    {expandedRow === row.row_number && row.issues && row.issues.length > 0 && (
                       <tr>
                         <td colSpan={3} className="bg-gray-50 px-3 py-2">
                           <div className="space-y-2 ml-4">
@@ -275,7 +274,7 @@ export default function StepValidation({
                         </td>
                       </tr>
                     )}
-                  </>
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>

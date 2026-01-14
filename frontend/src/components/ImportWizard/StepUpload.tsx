@@ -9,6 +9,7 @@ import type { FilePreview } from '../../types/importWizard'
 
 interface StepUploadProps {
   onFileSelect: (file: File) => void
+  onContinue: () => void
   filePreview: FilePreview | null
   loading: boolean
   error: string | null
@@ -16,6 +17,7 @@ interface StepUploadProps {
 
 export default function StepUpload({
   onFileSelect,
+  onContinue,
   filePreview,
   loading,
   error,
@@ -176,6 +178,18 @@ export default function StepUpload({
                   </tbody>
                 </table>
               </div>
+            </div>
+          )}
+
+          {/* Next button */}
+          {filePreview.total_rows > 0 && (
+            <div className="flex justify-end pt-4">
+              <button
+                onClick={onContinue}
+                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors"
+              >
+                Continue to Column Mapping
+              </button>
             </div>
           )}
         </div>

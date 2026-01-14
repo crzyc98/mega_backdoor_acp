@@ -44,8 +44,21 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
 
     try {
       const errorData = await response.json()
-      errorMessage = errorData.message || errorData.detail || errorMessage
       errorDetails = errorData
+
+      // Handle different error formats
+      if (typeof errorData.message === 'string') {
+        errorMessage = errorData.message
+      } else if (typeof errorData.detail === 'string') {
+        errorMessage = errorData.detail
+      } else if (Array.isArray(errorData.detail)) {
+        // FastAPI validation errors are arrays of objects
+        errorMessage = errorData.detail
+          .map((err: { msg?: string; message?: string }) => err.msg || err.message || 'Unknown error')
+          .join('; ')
+      } else if (errorData.detail && typeof errorData.detail === 'object') {
+        errorMessage = JSON.stringify(errorData.detail)
+      }
     } catch {
       // Ignore JSON parse errors for error responses
     }

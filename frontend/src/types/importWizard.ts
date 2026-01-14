@@ -168,8 +168,11 @@ export interface PreviewRowList {
 // ============================================================================
 
 export interface ImportExecuteRequest {
-  save_profile?: boolean
-  profile_name?: string
+  census_name: string
+  plan_year: number
+  client_name?: string
+  save_mapping_profile?: boolean
+  mapping_profile_name?: string
 }
 
 export interface ImportResultSummary {

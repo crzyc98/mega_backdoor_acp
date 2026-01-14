@@ -150,7 +150,7 @@ def calculate_acp_threshold(nhce_acp: Decimal) -> tuple[Decimal, str]:
 
     The IRS dual test uses the MORE favorable of:
     1. NHCE ACP × 1.25
-    2. NHCE ACP + 2.0 percentage points
+    2. NHCE ACP + 2.0 percentage points, capped at 2× NHCE ACP
 
     Args:
         nhce_acp: The NHCE group ACP percentage
@@ -161,12 +161,13 @@ def calculate_acp_threshold(nhce_acp: Decimal) -> tuple[Decimal, str]:
         - limiting_test: "1.25x" or "+2.0" indicating which test determines the threshold
     """
     limit_125x = nhce_acp * ACP_MULTIPLIER
-    limit_plus2 = nhce_acp + ACP_ADDER
+    limit_plus2_uncapped = nhce_acp + ACP_ADDER
+    limit_plus2_capped = min(limit_plus2_uncapped, nhce_acp * Decimal("2.0"))
 
-    if limit_125x >= limit_plus2:
+    if limit_125x >= limit_plus2_capped:
         return limit_125x, "1.25x"
     else:
-        return limit_plus2, "+2.0"
+        return limit_plus2_capped, "+2.0"
 
 
 def get_scenario_defaults() -> dict[str, list[float]]:

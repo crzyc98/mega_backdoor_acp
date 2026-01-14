@@ -41,7 +41,10 @@ export default function CensusUpload() {
       })
   }, [activeWorkspace])
 
-  const handleImportComplete = async (result: ImportResult) => {
+  const handleImportComplete = async (_result: ImportResult) => {
+    // Show success message briefly, then navigate
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+
     // Refresh census summary after successful import
     if (activeWorkspace) {
       try {
@@ -51,12 +54,11 @@ export default function CensusUpload() {
       } catch {
         // If we can't load the summary, navigate to analysis anyway
       }
-    }
-    setShowWizard(false)
 
-    // Navigate to analysis page
-    if (activeWorkspace && result.census_id) {
+      // Navigate to analysis page
       navigate(`/workspace/${activeWorkspace.id}/analysis`)
+    } else {
+      setShowWizard(false)
     }
   }
 

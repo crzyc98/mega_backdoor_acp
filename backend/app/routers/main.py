@@ -42,7 +42,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
+        "http://localhost:5173",
         "http://127.0.0.1:3000",
+        "http://127.0.0.1:5173",
         "*",  # In production, remove this and specify exact origins
     ],
     allow_credentials=True,
@@ -94,5 +96,5 @@ app.include_router(workspaces.router)  # Workspace management (React frontend)
 app.include_router(census.router, prefix="/api/v1", tags=["Census"])
 app.include_router(analysis.router, prefix="/api/v1", tags=["Analysis"])
 app.include_router(export.router, prefix="/api/v1", tags=["Export"])
-app.include_router(import_wizard.router, prefix="/api/v1", tags=["Import Wizard"])
+app.include_router(import_wizard.router, prefix="/api", tags=["Import Wizard"])
 app.include_router(import_wizard.workspace_router, prefix="/api", tags=["Import Wizard"])  # T009: Workspace-scoped import

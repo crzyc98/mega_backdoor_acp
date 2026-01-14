@@ -212,7 +212,7 @@ async function getPreviewRows(
  */
 async function executeImport(
   sessionId: string,
-  request: ImportExecuteRequest = {}
+  request: ImportExecuteRequest
 ): Promise<ImportResult> {
   return api.post<ImportResult>(
     `/api/import/sessions/${sessionId}/execute`,

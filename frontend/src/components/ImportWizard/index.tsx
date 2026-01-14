@@ -117,11 +117,13 @@ export default function ImportWizard({
 
     try {
       const updatedSession = await importWizardService.setMapping(session.id, { mapping })
-      setSession(updatedSession)
 
       // Get date format detection
       const detection = await importWizardService.detectDateFormat(session.id)
       setDateFormatDetection(detection)
+
+      // Advance to date_format step
+      setSession({ ...updatedSession, current_step: 'date_format' })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save mapping')
     } finally {
@@ -138,7 +140,6 @@ export default function ImportWizard({
 
     try {
       const updatedSession = await importWizardService.setDateFormat(session.id, format)
-      setSession(updatedSession)
 
       // Run validation
       const result = await importWizardService.runValidation(session.id)
@@ -147,6 +148,9 @@ export default function ImportWizard({
       // Get preview rows
       const rows = await importWizardService.getPreviewRows(session.id)
       setPreviewRows(rows)
+
+      // Advance to validation step
+      setSession({ ...updatedSession, current_step: 'validation' })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to set date format')
     } finally {
@@ -165,6 +169,9 @@ export default function ImportWizard({
       // Refresh session detail
       const detail = await importWizardService.getSession(session.id)
       setSessionDetail(detail)
+
+      // Advance to preview/confirm step
+      setSession({ ...session, current_step: 'preview' })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load session details')
     } finally {
@@ -173,7 +180,12 @@ export default function ImportWizard({
   }, [session])
 
   // Handle import execution
-  const handleImportExecute = useCallback(async (saveProfile: boolean, profileName?: string) => {
+  const handleImportExecute = useCallback(async (
+    censusName: string,
+    planYear: number,
+    saveProfile: boolean,
+    profileName?: string
+  ) => {
     if (!session) return
 
     setLoading(true)
@@ -181,10 +193,14 @@ export default function ImportWizard({
 
     try {
       const result = await importWizardService.executeImport(session.id, {
-        save_profile: saveProfile,
-        profile_name: profileName,
+        census_name: censusName,
+        plan_year: planYear,
+        save_mapping_profile: saveProfile,
+        mapping_profile_name: profileName,
       })
 
+      // Update session to completed state
+      setSession({ ...session, current_step: 'completed' })
       onComplete?.(result)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to execute import')
@@ -253,6 +269,11 @@ export default function ImportWizard({
         return (
           <StepUpload
             onFileSelect={handleFileUpload}
+            onContinue={() => {
+              if (session && mappingSuggestion) {
+                setSession({ ...session, current_step: 'mapping' })
+              }
+            }}
             filePreview={filePreview}
             loading={loading}
             error={error}
@@ -334,6 +355,9 @@ export default function ImportWizard({
             </h3>
             <p className="mt-2 text-sm text-gray-500">
               Your census data has been successfully imported.
+            </p>
+            <p className="mt-1 text-xs text-gray-400">
+              Redirecting to analysis...
             </p>
           </div>
         )

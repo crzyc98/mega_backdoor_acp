@@ -15,7 +15,7 @@ interface StepConfirmProps {
   session: ImportSession | null
   sessionDetail: ImportSessionDetail | null
   validationResult: ValidationResult | null
-  onExecute: (saveProfile: boolean, profileName?: string) => void
+  onExecute: (censusName: string, planYear: number, saveProfile: boolean, profileName?: string) => void
   onBack: () => void
   loading: boolean
   error: string | null
@@ -30,17 +30,22 @@ export default function StepConfirm({
   loading,
   error,
 }: StepConfirmProps) {
+  const [censusName, setCensusName] = useState('')
+  const [planYear, setPlanYear] = useState(new Date().getFullYear())
   const [saveProfile, setSaveProfile] = useState(false)
   const [profileName, setProfileName] = useState('')
 
   const summary = validationResult?.summary || sessionDetail?.validation_summary
 
   const handleExecute = () => {
-    onExecute(saveProfile, saveProfile ? profileName : undefined)
+    onExecute(censusName, planYear, saveProfile, saveProfile ? profileName : undefined)
   }
 
   const canExecute = summary
-    ? summary.error_count === 0 && (!saveProfile || profileName.trim().length > 0)
+    ? summary.error_count === 0 &&
+      censusName.trim().length > 0 &&
+      planYear >= 2020 && planYear <= 2100 &&
+      (!saveProfile || profileName.trim().length > 0)
     : false
 
   return (
@@ -59,6 +64,50 @@ export default function StepConfirm({
           <p className="text-sm text-red-700">{error}</p>
         </div>
       )}
+
+      {/* Census details */}
+      <div className="bg-gray-50 rounded-lg p-4 space-y-4">
+        <h4 className="text-sm font-medium text-gray-900">Census Details</h4>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label htmlFor="census-name" className="block text-sm text-gray-700 mb-1">
+              Census Name <span className="text-red-500">*</span>
+            </label>
+            <input
+              id="census-name"
+              type="text"
+              value={censusName}
+              onChange={(e) => setCensusName(e.target.value)}
+              placeholder="e.g., Q4 2025 Census"
+              className={`w-full px-3 py-2 text-sm border rounded-md focus:ring-blue-500 focus:border-blue-500 ${
+                censusName.trim().length === 0 ? 'border-red-300' : 'border-gray-300'
+              }`}
+            />
+            {censusName.trim().length === 0 && (
+              <p className="mt-1 text-xs text-red-500">Census name is required</p>
+            )}
+          </div>
+          <div>
+            <label htmlFor="plan-year" className="block text-sm text-gray-700 mb-1">
+              Plan Year <span className="text-red-500">*</span>
+            </label>
+            <input
+              id="plan-year"
+              type="number"
+              value={planYear}
+              onChange={(e) => setPlanYear(parseInt(e.target.value) || 2020)}
+              min={2020}
+              max={2100}
+              className={`w-full px-3 py-2 text-sm border rounded-md focus:ring-blue-500 focus:border-blue-500 ${
+                planYear < 2020 || planYear > 2100 ? 'border-red-300' : 'border-gray-300'
+              }`}
+            />
+            {(planYear < 2020 || planYear > 2100) && (
+              <p className="mt-1 text-xs text-red-500">Year must be between 2020 and 2100</p>
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* Import summary */}
       <div className="bg-gray-50 rounded-lg p-4 space-y-4">
@@ -160,7 +209,7 @@ export default function StepConfirm({
         {saveProfile && (
           <div className="mt-4 ml-7">
             <label htmlFor="profile-name" className="block text-sm text-gray-700 mb-1">
-              Profile Name
+              Profile Name <span className="text-red-500">*</span>
             </label>
             <input
               id="profile-name"
@@ -168,8 +217,15 @@ export default function StepConfirm({
               value={profileName}
               onChange={(e) => setProfileName(e.target.value)}
               placeholder="e.g., HR Export Format"
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+              className={`w-full px-3 py-2 text-sm border rounded-md focus:ring-blue-500 focus:border-blue-500 ${
+                profileName.trim().length === 0 ? 'border-red-300' : 'border-gray-300'
+              }`}
             />
+            {profileName.trim().length === 0 && (
+              <p className="mt-1 text-xs text-red-500">
+                Enter a profile name to save, or uncheck the box to import without saving.
+              </p>
+            )}
           </div>
         )}
       </div>
