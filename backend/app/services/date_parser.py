@@ -4,6 +4,8 @@ Date Format Parser Service for CSV Import Wizard.
 T020: Provides date format detection and parsing with live preview.
 """
 
+from __future__ import annotations
+
 from datetime import datetime
 from typing import NamedTuple
 

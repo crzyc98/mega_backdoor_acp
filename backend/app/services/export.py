@@ -4,6 +4,8 @@ Export Module for ACP Analysis Results.
 Provides CSV and PDF export functionality with full audit metadata.
 """
 
+from __future__ import annotations
+
 import io
 from datetime import datetime
 from decimal import Decimal

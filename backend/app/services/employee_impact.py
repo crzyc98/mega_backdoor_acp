@@ -5,6 +5,8 @@ T015-T021: Service for computing employee-level impact views,
 including individual contribution breakdowns and constraint analysis.
 """
 
+from __future__ import annotations
+
 import random
 from typing import TYPE_CHECKING
 

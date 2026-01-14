@@ -1,5 +1,7 @@
 """Storage utilities for atomic file operations."""
 
+from __future__ import annotations
+
 import os
 import tempfile
 from pathlib import Path

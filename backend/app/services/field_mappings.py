@@ -5,6 +5,8 @@ Defines the required census fields and their aliases for auto-suggestion.
 Implements fuzzy matching for column name detection.
 """
 
+from __future__ import annotations
+
 from difflib import SequenceMatcher
 
 # Required census fields for import

@@ -5,6 +5,8 @@ This module provides the main FastAPI application with health endpoint,
 rate limiting, and route registration.
 """
 
+from __future__ import annotations
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse

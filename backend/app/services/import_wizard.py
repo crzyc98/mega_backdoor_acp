@@ -4,6 +4,8 @@ CSV Import Wizard Core Logic.
 Provides file parsing, validation, and session management for the import wizard.
 """
 
+from __future__ import annotations
+
 import csv
 import hashlib
 import io

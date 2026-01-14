@@ -4,6 +4,8 @@ Pydantic Schemas for API Request/Response Models.
 These schemas match the OpenAPI specification in contracts/openapi.yaml.
 """
 
+from __future__ import annotations
+
 from datetime import datetime
 from typing import Any, Literal
 

@@ -5,6 +5,8 @@ This module provides database connectivity with WAL mode for concurrent reads
 and schema initialization for the ACP Sensitivity Analyzer.
 """
 
+from __future__ import annotations
+
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path

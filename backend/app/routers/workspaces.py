@@ -1,5 +1,7 @@
 """Workspace API endpoints."""
 
+from __future__ import annotations
+
 import io
 from datetime import datetime
 from typing import Literal, Optional

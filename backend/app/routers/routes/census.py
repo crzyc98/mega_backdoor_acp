@@ -5,6 +5,8 @@ Handles census upload, retrieval, listing, and deletion.
 Supports column mapping detection, HCE determination modes, and import metadata.
 """
 
+from __future__ import annotations
+
 import io
 import json
 import logging

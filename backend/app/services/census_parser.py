@@ -5,6 +5,8 @@ This module handles parsing of census CSV files, detecting and stripping PII col
 and validating the census data structure. Supports column mapping and HCE determination modes.
 """
 
+from __future__ import annotations
+
 import hashlib
 import secrets
 from typing import Literal, TextIO

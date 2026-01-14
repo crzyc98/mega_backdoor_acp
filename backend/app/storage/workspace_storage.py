@@ -1,5 +1,7 @@
 """File-based workspace storage implementation."""
 
+from __future__ import annotations
+
 import json
 import os
 import shutil

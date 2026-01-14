@@ -5,6 +5,8 @@ This module implements the IRS ACP test calculations per IRC Section 401(m),
 including the dual test (1.25x and +2.0 percentage points).
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Literal

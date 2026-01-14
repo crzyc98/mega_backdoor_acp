@@ -4,6 +4,8 @@ Data Models for ACP Sensitivity Analyzer.
 Dataclass models representing census, participant, and analysis entities.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal

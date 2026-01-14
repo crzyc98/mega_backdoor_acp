@@ -5,6 +5,8 @@ This module provides regulatory constants and functions for ACP (Actual Contribu
 Percentage) testing per IRC Section 401(m).
 """
 
+from __future__ import annotations
+
 from decimal import Decimal
 from pathlib import Path
 from typing import Any

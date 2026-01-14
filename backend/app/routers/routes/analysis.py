@@ -5,6 +5,8 @@ Handles single scenario analysis, grid analysis, results retrieval,
 and employee-level impact views.
 """
 
+from __future__ import annotations
+
 import io
 import time
 import uuid

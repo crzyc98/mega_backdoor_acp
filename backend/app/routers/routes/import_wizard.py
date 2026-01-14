@@ -12,6 +12,8 @@ Provides endpoints for the CSV import wizard workflow including:
 - Import logs
 """
 
+from __future__ import annotations
+
 import io
 import os
 import tempfile

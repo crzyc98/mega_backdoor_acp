@@ -6,6 +6,8 @@ These thresholds determine who qualifies as a Highly Compensated Employee (HCE)
 when using compensation-threshold mode.
 """
 
+from __future__ import annotations
+
 from typing import Literal
 
 # Historical IRS HCE compensation thresholds by year

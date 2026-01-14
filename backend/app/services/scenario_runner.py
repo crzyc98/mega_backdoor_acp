@@ -5,6 +5,8 @@ This module handles running single and grid scenarios, including
 seeded random HCE selection for reproducible results.
 """
 
+from __future__ import annotations
+
 import logging
 from dataclasses import dataclass
 from decimal import Decimal

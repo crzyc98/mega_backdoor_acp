@@ -4,6 +4,8 @@ Export API Routes.
 Handles CSV and PDF export of analysis results.
 """
 
+from __future__ import annotations
+
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Request, status
