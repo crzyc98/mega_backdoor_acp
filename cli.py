@@ -29,30 +29,57 @@ processes = []
 
 
 def kill_port(port: int) -> bool:
-    """Kill any process using the specified port."""
-    try:
-        result = subprocess.run(
-            ["lsof", "-ti", f":{port}"],
-            capture_output=True,
-            text=True,
-        )
-        if result.stdout.strip():
-            pids = result.stdout.strip().split('\n')
-            for pid in pids:
-                try:
-                    os.kill(int(pid), signal.SIGKILL)
-                except (ProcessLookupError, ValueError):
-                    pass
-            return True
-    except FileNotFoundError:
-        # lsof not available, try fuser as fallback
+    """Kill any process using the specified port (cross-platform)."""
+    if sys.platform == "win32":
+        # Windows: use netstat + taskkill
         try:
-            subprocess.run(
-                ["fuser", "-k", f"{port}/tcp"],
+            result = subprocess.run(
+                ["netstat", "-ano"],
                 capture_output=True,
+                text=True,
+                shell=True,
             )
-        except FileNotFoundError:
+            for line in result.stdout.split('\n'):
+                if f":{port}" in line and "LISTENING" in line:
+                    parts = line.split()
+                    if parts:
+                        pid = parts[-1]
+                        try:
+                            subprocess.run(
+                                ["taskkill", "/F", "/PID", pid],
+                                capture_output=True,
+                                shell=True,
+                            )
+                            return True
+                        except Exception:
+                            pass
+        except Exception:
             pass
+    else:
+        # Unix/Mac: use lsof
+        try:
+            result = subprocess.run(
+                ["lsof", "-ti", f":{port}"],
+                capture_output=True,
+                text=True,
+            )
+            if result.stdout.strip():
+                pids = result.stdout.strip().split('\n')
+                for pid in pids:
+                    try:
+                        os.kill(int(pid), signal.SIGKILL)
+                    except (ProcessLookupError, ValueError):
+                        pass
+                return True
+        except FileNotFoundError:
+            # lsof not available, try fuser as fallback
+            try:
+                subprocess.run(
+                    ["fuser", "-k", f"{port}/tcp"],
+                    capture_output=True,
+                )
+            except FileNotFoundError:
+                pass
     return False
 
 
@@ -70,7 +97,8 @@ def cleanup(signum=None, frame=None):
 
 
 signal.signal(signal.SIGINT, cleanup)
-signal.signal(signal.SIGTERM, cleanup)
+if sys.platform != "win32":
+    signal.signal(signal.SIGTERM, cleanup)
 
 
 @click.group()

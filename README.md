@@ -136,17 +136,16 @@ npm install
 
 ## Quick Start
 
-### Using the CLI (Recommended)
+### Start the Application
 
 ```bash
-# Add CLI to PATH (optional)
-export PATH="$PWD/bin:$PATH"
+# Mac/Linux
+python cli.py start
 
-# Start both backend and React frontend
-mega start
-
-# Or run directly without PATH setup
-./bin/mega start
+# Windows
+python cli.py start
+# or
+mega.bat start
 ```
 
 This launches:
@@ -159,19 +158,25 @@ Press `Ctrl+C` to stop all services.
 
 ```bash
 # Start both API and React frontend
-mega start
+python cli.py start
 
 # Custom ports
-mega start --api-port 8080 --ui-port 3000
+python cli.py start --api-port 8080 --ui-port 3000
 
 # Start only API server
-mega start --api-only
+python cli.py start --api-only
 
 # Start only frontend
-mega start --ui-only
+python cli.py start --ui-only
 
 # Headless mode (no browser)
-mega start --no-browser
+python cli.py start --no-browser
+
+# Run tests
+python cli.py test
+
+# Run linter
+python cli.py lint
 ```
 
 ### Manual Start (Alternative)
