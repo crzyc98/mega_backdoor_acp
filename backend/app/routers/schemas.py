@@ -5,7 +5,7 @@ These schemas match the OpenAPI specification in contracts/openapi.yaml.
 """
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -297,8 +297,14 @@ class ScenarioResultV2(BaseModel):
     status: Literal["PASS", "RISK", "FAIL", "ERROR"]
     nhce_acp: float | None = None
     hce_acp: float | None = None
+    limit_125: float | None = None
+    limit_2pct_uncapped: float | None = None
+    cap_2x: float | None = None
+    limit_2pct_capped: float | None = None
+    effective_limit: float | None = None
     max_allowed_acp: float | None = None
     margin: float | None = None
+    binding_rule: Literal["1.25x", "2pct/2x"] | None = None
     limiting_bound: Literal["MULTIPLE", "ADDITIVE"] | None = None
     hce_contributor_count: int | None = None
     nhce_contributor_count: int | None = None
@@ -515,8 +521,8 @@ class ImportPreview(BaseModel):
 class PreviewRow(BaseModel):
     """Individual row in import preview."""
     row_number: int
-    status: Literal["import", "reject", "warning"]
-    data: dict[str, str]
+    status: Literal["valid", "warning", "error"]
+    data: dict[str, Any]
     issues: list[ValidationIssue] | None = None
 
 

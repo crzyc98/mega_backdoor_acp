@@ -10,15 +10,33 @@ import ViewModeSelector from '../components/ViewModeSelector'
 import LoadingSpinner from '../components/LoadingSpinner'
 import type { Run, ViewMode, ScenarioResult } from '../types'
 
-// Default rate configurations
-const DEFAULT_ADOPTION_RATES = [0.2, 0.4, 0.6, 0.8, 1.0]
-const DEFAULT_CONTRIBUTION_RATES = [0.02, 0.04, 0.06, 0.08, 0.10, 0.12]
+// Default rate configurations (as percentages for API)
+const DEFAULT_ADOPTION_RATES = [20, 40, 60, 80, 100]
+const DEFAULT_CONTRIBUTION_RATES = [2, 4, 6, 8, 10, 12]
+
+// Format rates array for display - handles both fractions and percentages
+const formatRatesForDisplay = (rates: number[]): string => {
+  // Detect format: if max rate > 1, they're already percentages; otherwise fractions
+  const maxRate = Math.max(...rates)
+  const areFractions = maxRate <= 1
+
+  return rates.map((r) => {
+    const pct = areFractions ? r * 100 : r
+    return pct.toFixed(0)
+  }).join(', ')
+}
 
 export default function AnalysisDashboard() {
   const { activeWorkspace, refreshActiveWorkspace } = useWorkspace()
 
   const [adoptionRates, setAdoptionRates] = useState<number[]>(DEFAULT_ADOPTION_RATES)
   const [contributionRates, setContributionRates] = useState<number[]>(DEFAULT_CONTRIBUTION_RATES)
+  const [adoptionRatesText, setAdoptionRatesText] = useState<string>(
+    formatRatesForDisplay(DEFAULT_ADOPTION_RATES)
+  )
+  const [contributionRatesText, setContributionRatesText] = useState<string>(
+    formatRatesForDisplay(DEFAULT_CONTRIBUTION_RATES)
+  )
   const [seed, setSeed] = useState<string>('')
   const [viewMode, setViewMode] = useState<ViewMode>('PASS_FAIL')
 
@@ -60,10 +78,21 @@ export default function AnalysisDashboard() {
       // Restore parameters from run
       setAdoptionRates(runDetail.adoption_rates)
       setContributionRates(runDetail.contribution_rates)
+      setAdoptionRatesText(formatRatesForDisplay(runDetail.adoption_rates))
+      setContributionRatesText(formatRatesForDisplay(runDetail.contribution_rates))
       setSeed(runDetail.seed.toString())
     } catch (err) {
       console.error('Failed to load run:', err)
     }
+  }
+
+  const parseRates = (text: string): number[] => {
+    // Parse user input as percentages (e.g., "20, 40, 60" -> [20, 40, 60])
+    // API expects percentages and converts to fractions internally
+    return text
+      .split(',')
+      .map((s) => parseFloat(s.trim()))
+      .filter((n) => !isNaN(n) && n > 0 && n <= 100)
   }
 
   const handleRunAnalysis = async () => {
@@ -140,13 +169,14 @@ export default function AnalysisDashboard() {
             </label>
             <input
               type="text"
-              value={adoptionRates.map((r) => (r * 100).toFixed(0)).join(', ')}
-              onChange={(e) => {
-                const rates = e.target.value
-                  .split(',')
-                  .map((s) => parseFloat(s.trim()) / 100)
-                  .filter((n) => !isNaN(n) && n >= 0 && n <= 1)
-                setAdoptionRates(rates.length >= 2 ? rates : adoptionRates)
+              value={adoptionRatesText}
+              onChange={(e) => setAdoptionRatesText(e.target.value)}
+              onBlur={() => {
+                const rates = parseRates(adoptionRatesText)
+                if (rates.length >= 2) {
+                  setAdoptionRates(rates)
+                  setAdoptionRatesText(formatRatesForDisplay(rates))
+                }
               }}
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
               placeholder="20, 40, 60, 80, 100"
@@ -160,13 +190,14 @@ export default function AnalysisDashboard() {
             </label>
             <input
               type="text"
-              value={contributionRates.map((r) => (r * 100).toFixed(0)).join(', ')}
-              onChange={(e) => {
-                const rates = e.target.value
-                  .split(',')
-                  .map((s) => parseFloat(s.trim()) / 100)
-                  .filter((n) => !isNaN(n) && n >= 0 && n <= 1)
-                setContributionRates(rates.length >= 2 ? rates : contributionRates)
+              value={contributionRatesText}
+              onChange={(e) => setContributionRatesText(e.target.value)}
+              onBlur={() => {
+                const rates = parseRates(contributionRatesText)
+                if (rates.length >= 2) {
+                  setContributionRates(rates)
+                  setContributionRatesText(formatRatesForDisplay(rates))
+                }
               }}
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
               placeholder="2, 4, 6, 8, 10, 12"

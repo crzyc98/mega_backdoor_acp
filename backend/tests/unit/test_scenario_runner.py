@@ -831,3 +831,51 @@ class TestPerformanceBenchmarks:
 
         assert len(result.scenarios) == 100
         assert elapsed < 5.0, f"100-scenario grid took {elapsed:.3f}s, expected <5.0s"
+
+
+# ---------------------------------------------------------------------------
+# ACP limit error handling additions
+# ---------------------------------------------------------------------------
+
+from app.services.scenario_runner import run_single_scenario_v2
+from app.services.models import ScenarioStatus
+
+
+def test_no_hces_returns_error_and_nulls():
+    participants = [
+        {"internal_id": "nhce1", "is_hce": False, "match_cents": 1000, "after_tax_cents": 0, "compensation_cents": 50000},
+        {"internal_id": "nhce2", "is_hce": False, "match_cents": 2000, "after_tax_cents": 0, "compensation_cents": 60000},
+    ]
+
+    result = run_single_scenario_v2(
+        participants=participants,
+        adoption_rate=0.5,
+        contribution_rate=0.05,
+        seed=123,
+    )
+
+    assert result.status == ScenarioStatus.ERROR
+    assert result.nhce_acp is None
+    assert result.hce_acp is None
+    assert result.effective_limit is None
+    assert result.margin is None
+
+
+def test_no_nhces_returns_error_and_nulls():
+    participants = [
+        {"internal_id": "hce1", "is_hce": True, "match_cents": 300000, "after_tax_cents": 0, "compensation_cents": 10000000},
+        {"internal_id": "hce2", "is_hce": True, "match_cents": 400000, "after_tax_cents": 0, "compensation_cents": 10000000},
+    ]
+
+    result = run_single_scenario_v2(
+        participants=participants,
+        adoption_rate=0.5,
+        contribution_rate=0.05,
+        seed=123,
+    )
+
+    assert result.status == ScenarioStatus.ERROR
+    assert result.nhce_acp is None
+    assert result.hce_acp is None
+    assert result.effective_limit is None
+    assert result.margin is None

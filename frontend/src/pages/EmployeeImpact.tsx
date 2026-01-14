@@ -30,6 +30,19 @@ function formatPercentage(value: number | null): string {
   return `${value.toFixed(2)}%`
 }
 
+function formatSignedPercentage(value: number | null | undefined): string {
+  if (value === null || value === undefined) return 'N/A'
+  const sign = value > 0 ? '+' : ''
+  return `${sign}${value.toFixed(2)}%`
+}
+
+// Format rate for display - handles both fraction (0.25) and percentage (25) formats
+function formatRateForDisplay(rate: number): string {
+  // If rate > 1, it's already a percentage; otherwise it's a fraction
+  const pct = rate > 1 ? rate : rate * 100
+  return `${pct.toFixed(0)}%`
+}
+
 export default function EmployeeImpact() {
   const { activeWorkspace } = useWorkspace()
   const [searchParams] = useSearchParams()
@@ -333,7 +346,7 @@ export default function EmployeeImpact() {
             >
               {selectedRun?.adoption_rates.map((rate) => (
                 <option key={rate} value={rate}>
-                  {(rate * 100).toFixed(0)}%
+                  {formatRateForDisplay(rate)}
                 </option>
               ))}
             </select>
@@ -355,7 +368,7 @@ export default function EmployeeImpact() {
             >
               {selectedRun?.contribution_rates.map((rate) => (
                 <option key={rate} value={rate}>
-                  {(rate * 100).toFixed(0)}%
+                  {formatRateForDisplay(rate)}
                 </option>
               ))}
             </select>
@@ -391,6 +404,60 @@ export default function EmployeeImpact() {
             <p className="text-xs text-blue-500 mt-1">
               Plan year {impactData.plan_year}
             </p>
+          </div>
+        </div>
+      )}
+
+      {impactData?.scenario && (
+        <div className="bg-white rounded-lg border border-gray-200 p-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Compliance Card</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+            <div className="space-y-2">
+              <div className="flex justify-between">
+                <span className="text-gray-500">NHCE ACP</span>
+                <span className="font-medium">{formatPercentage(impactData.scenario.nhce_acp)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">HCE ACP</span>
+                <span className="font-medium">{formatPercentage(impactData.scenario.hce_acp)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Limit 1.25x</span>
+                <span className="font-medium">{formatPercentage(impactData.scenario.limit_125 ?? null)}</span>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="flex justify-between">
+                <span className="text-gray-500">Limit +2.0%</span>
+                <span className="font-medium">{formatPercentage(impactData.scenario.limit_2pct_uncapped ?? null)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Cap 2x</span>
+                <span className="font-medium">{formatPercentage(impactData.scenario.cap_2x ?? null)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Capped +2.0%</span>
+                <span className="font-medium">{formatPercentage(impactData.scenario.limit_2pct_capped ?? null)}</span>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="flex justify-between">
+                <span className="text-gray-500">Effective Limit</span>
+                <span className="font-medium">
+                  {formatPercentage(
+                    impactData.scenario.effective_limit ?? impactData.scenario.max_allowed_acp ?? null
+                  )}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Binding Rule</span>
+                <span className="font-medium">{impactData.scenario.binding_rule ?? 'N/A'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Margin</span>
+                <span className="font-medium">{formatSignedPercentage(impactData.scenario.margin)}</span>
+              </div>
+            </div>
           </div>
         </div>
       )}

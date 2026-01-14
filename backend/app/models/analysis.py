@@ -21,8 +21,14 @@ class ScenarioResult(BaseModel):
     status: AnalysisStatus
     nhce_acp: Optional[float] = None
     hce_acp: Optional[float] = None
+    limit_125: Optional[float] = None
+    limit_2pct_uncapped: Optional[float] = None
+    cap_2x: Optional[float] = None
+    limit_2pct_capped: Optional[float] = None
+    effective_limit: Optional[float] = None
     max_allowed_acp: Optional[float] = None
     margin: Optional[float] = None
+    binding_rule: Optional[str] = None
     adoption_rate: float
     contribution_rate: float
     seed_used: int

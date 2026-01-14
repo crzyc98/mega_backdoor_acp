@@ -114,11 +114,29 @@ class ScenarioResult(BaseModel):
     hce_acp: float | None = Field(
         None, description="HCE Actual Contribution Percentage (null if ERROR)"
     )
+    limit_125: float | None = Field(
+        None, description="NHCE ACP × 1.25 (null if ERROR)"
+    )
+    limit_2pct_uncapped: float | None = Field(
+        None, description="NHCE ACP + 2.0 percentage points (null if ERROR)"
+    )
+    cap_2x: float | None = Field(
+        None, description="2.0 × NHCE ACP cap on the +2.0 test (null if ERROR)"
+    )
+    limit_2pct_capped: float | None = Field(
+        None, description="Min(NHCE ACP + 2.0, 2× NHCE ACP) (null if ERROR)"
+    )
+    effective_limit: float | None = Field(
+        None, description="Max(1.25× limit, capped +2.0 limit) (null if ERROR)"
+    )
     max_allowed_acp: float | None = Field(
         None, description="Threshold value HCE ACP must not exceed (null if ERROR)"
     )
     margin: float | None = Field(
         None, description="Distance from threshold; positive=passing, negative=failing (null if ERROR)"
+    )
+    binding_rule: Literal["1.25x", "2pct/2x"] | None = Field(
+        None, description="Which branch produced effective_limit (null if ERROR)"
     )
     limiting_bound: LimitingBound | None = Field(
         None, description="Which test formula determined the threshold (null if ERROR)"

@@ -168,7 +168,7 @@ class TestIRSDualTest:
         """1.25x test wins when NHCE ACP is high (>8%)."""
         nhce_acp = Decimal("10.0")  # 10%
         # 1.25x = 12.5%
-        # +2.0 = 12.0%
+        # +2.0 = 12.0% (cap = 20.0%, so uncapped applies)
         # 1.25x wins (higher threshold is more favorable)
 
         result = apply_acp_test(
@@ -176,15 +176,18 @@ class TestIRSDualTest:
             hce_acp=Decimal("11.0")  # 11% - should pass
         )
 
-        assert result.threshold == Decimal("12.5")
+        assert result.limit_125 == Decimal("12.5")
+        assert result.limit_2pct_capped == Decimal("12.0")
+        assert result.effective_limit == Decimal("12.5")
         assert result.limiting_test == "1.25x"
+        assert result.binding_rule == "1.25x"
         assert result.result == "PASS"
 
     def test_apply_acp_test_plus2_wins(self):
         """'+2.0' test wins when NHCE ACP is low (<8%)."""
         nhce_acp = Decimal("4.0")  # 4%
         # 1.25x = 5.0%
-        # +2.0 = 6.0%
+        # +2.0 = 6.0% (cap = 8.0%, so uncapped applies)
         # +2.0 wins (higher threshold is more favorable)
 
         result = apply_acp_test(
@@ -192,8 +195,9 @@ class TestIRSDualTest:
             hce_acp=Decimal("5.5")  # 5.5% - should pass (under 6.0%)
         )
 
-        assert result.threshold == Decimal("6.0")
+        assert result.effective_limit == Decimal("6.0")
         assert result.limiting_test == "+2.0"
+        assert result.binding_rule == "2pct/2x"
         assert result.result == "PASS"
 
     def test_apply_acp_test_fail(self):
@@ -207,7 +211,7 @@ class TestIRSDualTest:
         )
 
         assert result.result == "FAIL"
-        assert result.threshold == Decimal("6.0")
+        assert result.effective_limit == Decimal("6.0")
 
     def test_apply_acp_test_boundary_pass(self):
         """Test should pass when HCE ACP exactly equals threshold."""
@@ -221,20 +225,20 @@ class TestIRSDualTest:
         assert result.result == "PASS"
 
     def test_apply_acp_test_zero_nhce_acp(self):
-        """Zero NHCE ACP should give +2.0% threshold."""
+        """Zero NHCE ACP should cap +2.0% at 0.0%."""
         nhce_acp = Decimal("0.0")
         # 1.25x = 0.0%
-        # +2.0 = 2.0%
-        # +2.0 wins
+        # +2.0 = 2.0% (cap = 0.0%, so capped)
 
         result = apply_acp_test(
             nhce_acp=nhce_acp,
             hce_acp=Decimal("1.5")
         )
 
-        assert result.threshold == Decimal("2.0")
-        assert result.limiting_test == "+2.0"
-        assert result.result == "PASS"
+        assert result.limit_2pct_capped == Decimal("0.0")
+        assert result.effective_limit == Decimal("0.0")
+        assert result.limiting_test == "1.25x"
+        assert result.result == "FAIL"
 
     def test_apply_acp_test_crossover_point(self):
         """At NHCE ACP = 8%, both tests give same threshold (10%)."""
@@ -250,6 +254,42 @@ class TestIRSDualTest:
 
         assert result.threshold == Decimal("10.0")
         assert result.result == "PASS"
+
+    def test_apply_acp_test_cap_at_2x(self):
+        """Cap at 2x should reduce the +2.0 limit when NHCE ACP is low."""
+        nhce_acp = Decimal("1.0")  # 1%
+        # 1.25x = 1.25%
+        # +2.0 = 3.0% (uncapped)
+        # 2x cap = 2.0% -> capped +2.0 = 2.0%
+
+        result = apply_acp_test(
+            nhce_acp=nhce_acp,
+            hce_acp=Decimal("1.5")
+        )
+
+        assert result.limit_2pct_uncapped == Decimal("3.0")
+        assert result.cap_2x == Decimal("2.0")
+        assert result.limit_2pct_capped == Decimal("2.0")
+        assert result.effective_limit == Decimal("2.0")
+        assert result.binding_rule == "2pct/2x"
+
+    def test_margin_sign_matches_result(self):
+        """Margin sign should align with PASS/FAIL determination."""
+        nhce_acp = Decimal("4.0")  # Effective limit = 6.0%
+
+        pass_result = apply_acp_test(
+            nhce_acp=nhce_acp,
+            hce_acp=Decimal("5.0")
+        )
+        fail_result = apply_acp_test(
+            nhce_acp=nhce_acp,
+            hce_acp=Decimal("6.5")
+        )
+
+        assert pass_result.result == "PASS"
+        assert pass_result.margin > 0
+        assert fail_result.result == "FAIL"
+        assert fail_result.margin < 0
 
 
 class TestMarginCalculation:
@@ -368,7 +408,7 @@ class TestEdgeCases:
         assert result == 0
 
     def test_zero_nhce_acp_uses_plus2_threshold(self):
-        """T087: Zero NHCE ACP should use +2.0% threshold."""
+        """T087: Zero NHCE ACP should cap +2.0% threshold at 0.0%."""
         from app.services.acp_calculator import apply_acp_test
         from decimal import Decimal
 
@@ -377,10 +417,10 @@ class TestEdgeCases:
             hce_acp=Decimal("1.5")
         )
 
-        # +2.0 test should win (0 + 2 = 2 > 0 * 1.25 = 0)
-        assert result.threshold == Decimal("2")
-        assert result.limiting_test == "+2.0"
-        assert result.result == "PASS"
+        assert result.limit_2pct_capped == Decimal("0")
+        assert result.effective_limit == Decimal("0")
+        assert result.limiting_test == "1.25x"
+        assert result.result == "FAIL"
 
     def test_hce_acp_exceeds_threshold_returns_fail(self):
         """Test that HCE ACP exceeding threshold returns FAIL."""

@@ -39,6 +39,7 @@ export interface EmployeeImpactView {
   seed_used: number
   plan_year: number
   section_415c_limit: number
+  scenario?: import('./analysis').ScenarioResult | null
   hce_employees: EmployeeImpact[]
   nhce_employees: EmployeeImpact[]
   hce_summary: EmployeeImpactSummary
