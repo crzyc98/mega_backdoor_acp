@@ -342,9 +342,8 @@ def run_single_scenario_v2(
             ))
 
         # Calculate threshold intermediates
-        from app.services.constants import ACP_MULTIPLIER, ACP_ADDER
-        threshold_multiple = float(nhce_acp * ACP_MULTIPLIER)
-        threshold_additive = float(nhce_acp + ACP_ADDER)
+        threshold_multiple = float(test_result.limit_125)
+        threshold_additive = float(test_result.limit_2pct_capped)
 
         debug_details = DebugDetails(
             selected_hce_ids=adopting_hce_ids,
@@ -364,8 +363,14 @@ def run_single_scenario_v2(
         status=status,
         nhce_acp=float(test_result.nhce_acp),
         hce_acp=float(test_result.hce_acp),
+        limit_125=float(test_result.limit_125),
+        limit_2pct_uncapped=float(test_result.limit_2pct_uncapped),
+        cap_2x=float(test_result.cap_2x),
+        limit_2pct_capped=float(test_result.limit_2pct_capped),
+        effective_limit=float(test_result.effective_limit),
         max_allowed_acp=float(test_result.threshold),
         margin=float(test_result.margin),
+        binding_rule=test_result.binding_rule,
         limiting_bound=test_result.limiting_bound,
         hce_contributor_count=len(adopting_hce_ids),
         nhce_contributor_count=nhce_contributor_count,

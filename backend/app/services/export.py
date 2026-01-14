@@ -6,9 +6,27 @@ Provides CSV and PDF export functionality with full audit metadata.
 
 import io
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
 from app.services.constants import SYSTEM_VERSION
+from app.services.acp_calculator import calculate_acp_limits
+
+
+def _ensure_limit_fields(result: dict) -> dict:
+    nhce = result.get("nhce_acp")
+    if nhce is None:
+        return result
+
+    limits = calculate_acp_limits(Decimal(str(nhce)))
+    result.setdefault("limit_125", float(limits["limit_125"]))
+    result.setdefault("limit_2pct_uncapped", float(limits["limit_2pct_uncapped"]))
+    result.setdefault("cap_2x", float(limits["cap_2x"]))
+    result.setdefault("limit_2pct_capped", float(limits["limit_2pct_capped"]))
+    result.setdefault("effective_limit", float(limits["effective_limit"]))
+    result.setdefault("binding_rule", "1.25x" if limits["limit_125"] >= limits["limit_2pct_capped"] else "2pct/2x")
+    result.setdefault("threshold", result.get("effective_limit"))
+    return result
 
 
 def format_csv_export(
@@ -47,6 +65,12 @@ def format_csv_export(
         "contribution_rate",
         "nhce_acp",
         "hce_acp",
+        "limit_125",
+        "limit_2pct_uncapped",
+        "cap_2x",
+        "limit_2pct_capped",
+        "effective_limit",
+        "binding_rule",
         "threshold",
         "margin",
         "result",
@@ -58,16 +82,23 @@ def format_csv_export(
 
     # Data rows
     for r in results:
+        _ensure_limit_fields(r)
         row = [
             f"{r['adoption_rate']:.1f}",
             f"{r['contribution_rate']:.1f}",
-            f"{r['nhce_acp']:.3f}",
-            f"{r['hce_acp']:.3f}",
-            f"{r['threshold']:.3f}",
-            f"{r['margin']:.3f}",
-            r["result"],
-            r["limiting_test"],
-            str(r["seed"]),
+            f"{r['nhce_acp']:.2f}" if r.get("nhce_acp") is not None else "",
+            f"{r['hce_acp']:.2f}" if r.get("hce_acp") is not None else "",
+            f"{r['limit_125']:.2f}" if r.get("limit_125") is not None else "",
+            f"{r['limit_2pct_uncapped']:.2f}" if r.get("limit_2pct_uncapped") is not None else "",
+            f"{r['cap_2x']:.2f}" if r.get("cap_2x") is not None else "",
+            f"{r['limit_2pct_capped']:.2f}" if r.get("limit_2pct_capped") is not None else "",
+            f"{r['effective_limit']:.2f}" if r.get("effective_limit") is not None else "",
+            r.get("binding_rule", ""),
+            f"{r['threshold']:.2f}" if r.get("threshold") is not None else "",
+            f"{r['margin']:.2f}" if r.get("margin") is not None else "",
+            r.get("result", ""),
+            r.get("limiting_test", ""),
+            str(r.get("seed", "")),
             r.get("run_timestamp", ""),
         ]
         lines.append(",".join(row))
@@ -170,10 +201,10 @@ def generate_pdf_report(
         "Contrib\n(%)",
         "NHCE\nACP",
         "HCE\nACP",
-        "Threshold",
+        "Limit",
         "Margin",
+        "Rule",
         "Result",
-        "Test",
     ]
 
     # Limit results for PDF (show first 50)
@@ -181,15 +212,16 @@ def generate_pdf_report(
     table_data = [header]
 
     for r in display_results:
+        _ensure_limit_fields(r)
         row = [
             f"{r['adoption_rate']:.0f}",
             f"{r['contribution_rate']:.1f}",
-            f"{r['nhce_acp']:.2f}",
-            f"{r['hce_acp']:.2f}",
-            f"{r['threshold']:.2f}",
-            f"{r['margin']:+.2f}",
-            r["result"],
-            r["limiting_test"],
+            f"{r['nhce_acp']:.2f}" if r.get("nhce_acp") is not None else "N/A",
+            f"{r['hce_acp']:.2f}" if r.get("hce_acp") is not None else "N/A",
+            f"{r['effective_limit']:.2f}" if r.get("effective_limit") is not None else "N/A",
+            f"{r['margin']:+.2f}" if r.get("margin") is not None else "N/A",
+            r.get("binding_rule", ""),
+            r.get("result", ""),
         ]
         table_data.append(row)
 
@@ -234,11 +266,56 @@ def generate_pdf_report(
     ]))
     elements.append(audit_table)
 
+    # Scenario compliance table (limit to first 10 results)
+    if results:
+        elements.append(Spacer(1, 12))
+        elements.append(Paragraph("Scenario Compliance Metrics", heading_style))
+        compliance_header = [
+            "Adopt\n(%)",
+            "Contrib\n(%)",
+            "Limit 1.25x",
+            "Limit +2.0",
+            "Cap 2x",
+            "Capped +2.0",
+            "Effective",
+            "Rule",
+            "Margin",
+        ]
+        compliance_rows = [compliance_header]
+        for r in results[:10]:
+            _ensure_limit_fields(r)
+            compliance_rows.append([
+                f"{r['adoption_rate']:.0f}",
+                f"{r['contribution_rate']:.1f}",
+                f"{r['limit_125']:.2f}" if r.get("limit_125") is not None else "N/A",
+                f"{r['limit_2pct_uncapped']:.2f}" if r.get("limit_2pct_uncapped") is not None else "N/A",
+                f"{r['cap_2x']:.2f}" if r.get("cap_2x") is not None else "N/A",
+                f"{r['limit_2pct_capped']:.2f}" if r.get("limit_2pct_capped") is not None else "N/A",
+                f"{r['effective_limit']:.2f}" if r.get("effective_limit") is not None else "N/A",
+                r.get("binding_rule", ""),
+                f"{r['margin']:+.2f}" if r.get("margin") is not None else "N/A",
+            ])
+        compliance_table = Table(compliance_rows, repeatRows=1)
+        compliance_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, 0), 8),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ]))
+        elements.append(compliance_table)
+        if len(results) > 10:
+            elements.append(Paragraph(
+                f"Note: Showing first 10 of {len(results)} compliance rows.",
+                normal_style,
+            ))
+
     # Formula explanation
     elements.append(Spacer(1, 12))
     elements.append(Paragraph("Formula Reference", heading_style))
     elements.append(Paragraph(
-        "<b>IRS ACP Test (IRC Section 401(m)):</b> HCE ACP must be ≤ max(NHCE ACP × 1.25, NHCE ACP + 2.0%)",
+        "<b>IRS ACP Test (IRC Section 401(m)):</b> HCE ACP must be ≤ max(NHCE ACP × 1.25, min(NHCE ACP + 2.0%, 2× NHCE ACP))",
         normal_style
     ))
 
@@ -258,11 +335,18 @@ def add_formula_strings(result: dict) -> dict:
     Returns:
         Result with added formula_125x and formula_plus2 fields
     """
+    _ensure_limit_fields(result)
     nhce = result["nhce_acp"]
     hce = result["hce_acp"]
 
-    result["formula_125x"] = f"HCE ACP ({hce:.3f}%) ≤ NHCE ACP ({nhce:.3f}%) × 1.25 = {nhce * 1.25:.3f}%"
-    result["formula_plus2"] = f"HCE ACP ({hce:.3f}%) ≤ NHCE ACP ({nhce:.3f}%) + 2.0% = {nhce + 2:.3f}%"
-    result["formula_result"] = f"HCE ACP ({hce:.3f}%) {'≤' if result['result'] == 'PASS' else '>'} Threshold ({result['threshold']:.3f}%) → {result['result']}"
+    result["formula_125x"] = f"HCE ACP ({hce:.2f}%) ≤ NHCE ACP ({nhce:.2f}%) × 1.25 = {result['limit_125']:.2f}%"
+    result["formula_plus2"] = (
+        f"HCE ACP ({hce:.2f}%) ≤ min(NHCE ACP ({nhce:.2f}%) + 2.0%, 2× NHCE ACP) = "
+        f"{result['limit_2pct_capped']:.2f}%"
+    )
+    result["formula_result"] = (
+        f"HCE ACP ({hce:.2f}%) {'≤' if result['result'] == 'PASS' else '>'} "
+        f"Effective Limit ({result['effective_limit']:.2f}%) → {result['result']}"
+    )
 
     return result

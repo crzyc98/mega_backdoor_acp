@@ -44,7 +44,23 @@ export default function Heatmap({
   )
 
   const getScenario = (adoptionRate: number, contributionRate: number): ScenarioResult | undefined => {
-    return scenarioMap.get(`${adoptionRate}-${contributionRate}`)
+    // Try direct lookup first
+    let scenario = scenarioMap.get(`${adoptionRate}-${contributionRate}`)
+    if (scenario) return scenario
+
+    // If rates are percentages (>1), convert to fractions for lookup
+    // Scenario data stores rates as fractions (0.25), but run metadata may store as percentages (25)
+    if (adoptionRate > 1 || contributionRate > 1) {
+      const adoptFrac = adoptionRate > 1 ? adoptionRate / 100 : adoptionRate
+      const contribFrac = contributionRate > 1 ? contributionRate / 100 : contributionRate
+      scenario = scenarioMap.get(`${adoptFrac}-${contribFrac}`)
+    }
+    return scenario
+  }
+
+  const formatPercentValue = (value: number | null | undefined): string => {
+    if (value === null || value === undefined) return 'N/A'
+    return `${value.toFixed(2)}%`
   }
 
   return (
@@ -128,15 +144,21 @@ export default function Heatmap({
             <hr className="my-1" />
             <div className="flex justify-between">
               <span>NHCE ACP:</span>
-              <span className="font-medium">{hoveredCell.nhce_acp?.toFixed(2) ?? 'N/A'}%</span>
+              <span className="font-medium">{formatPercentValue(hoveredCell.nhce_acp)}</span>
             </div>
             <div className="flex justify-between">
               <span>HCE ACP:</span>
-              <span className="font-medium">{hoveredCell.hce_acp?.toFixed(2) ?? 'N/A'}%</span>
+              <span className="font-medium">{formatPercentValue(hoveredCell.hce_acp)}</span>
             </div>
             <div className="flex justify-between">
-              <span>Threshold:</span>
-              <span className="font-medium">{hoveredCell.max_allowed_acp?.toFixed(2) ?? 'N/A'}%</span>
+              <span>Effective Limit:</span>
+              <span className="font-medium">
+                {formatPercentValue(hoveredCell.effective_limit ?? hoveredCell.max_allowed_acp)}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span>Binding Rule:</span>
+              <span className="font-medium">{hoveredCell.binding_rule ?? 'N/A'}</span>
             </div>
             <div className="flex justify-between">
               <span>Margin:</span>

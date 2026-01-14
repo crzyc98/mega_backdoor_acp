@@ -267,11 +267,15 @@ def create_run(workspace_id: UUID, data: RunCreate) -> Run:
         # Convert to list of participant dicts
         participants = census_df.to_dict("records")
 
+        # Convert rates from percentages to fractions (e.g., 20% -> 0.20)
+        adoption_fractions = [r / 100.0 for r in data.adoption_rates]
+        contribution_fractions = [r / 100.0 for r in data.contribution_rates]
+
         # Run grid analysis
         grid_result = run_grid_scenarios_v2(
             participants=participants,
-            adoption_rates=data.adoption_rates,
-            contribution_rates=data.contribution_rates,
+            adoption_rates=adoption_fractions,
+            contribution_rates=contribution_fractions,
             seed=seed,
         )
 
@@ -280,10 +284,16 @@ def create_run(workspace_id: UUID, data: RunCreate) -> Run:
             "scenarios": [
                 {
                     "status": s.status.value,
-                    "nhce_acp": float(s.nhce_acp) if s.nhce_acp else None,
-                    "hce_acp": float(s.hce_acp) if s.hce_acp else None,
-                    "max_allowed_acp": float(s.max_allowed_acp) if s.max_allowed_acp else None,
-                    "margin": float(s.margin) if s.margin else None,
+                    "nhce_acp": float(s.nhce_acp) if s.nhce_acp is not None else None,
+                    "hce_acp": float(s.hce_acp) if s.hce_acp is not None else None,
+                    "limit_125": float(s.limit_125) if s.limit_125 is not None else None,
+                    "limit_2pct_uncapped": float(s.limit_2pct_uncapped) if s.limit_2pct_uncapped is not None else None,
+                    "cap_2x": float(s.cap_2x) if s.cap_2x is not None else None,
+                    "limit_2pct_capped": float(s.limit_2pct_capped) if s.limit_2pct_capped is not None else None,
+                    "effective_limit": float(s.effective_limit) if s.effective_limit is not None else None,
+                    "max_allowed_acp": float(s.max_allowed_acp) if s.max_allowed_acp is not None else None,
+                    "margin": float(s.margin) if s.margin is not None else None,
+                    "binding_rule": s.binding_rule if s.binding_rule else None,
                     "adoption_rate": s.adoption_rate,
                     "contribution_rate": s.contribution_rate,
                     "seed_used": s.seed_used,
@@ -419,6 +429,22 @@ def get_employee_impact(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"error": "not_found", "message": f"Run {run_id} not found"},
         )
+
+    results = storage.get_run_results(workspace_id, run_id)
+    scenario_summary = None
+    if results:
+        # Convert query params from percentages to fractions to match stored scenario format
+        # Run metadata stores rates as percentages (e.g., 25.0 for 25%)
+        # but scenario results store them as fractions (e.g., 0.25)
+        adoption_rate_frac = adoption_rate / 100.0
+        contribution_rate_frac = contribution_rate / 100.0
+        for scenario in results.get("scenarios", []):
+            if (
+                abs(scenario.get("adoption_rate", 0) - adoption_rate_frac) < 1e-9
+                and abs(scenario.get("contribution_rate", 0) - contribution_rate_frac) < 1e-9
+            ):
+                scenario_summary = scenario
+                break
 
     # Validate rates are in run's rate arrays
     if adoption_rate not in run.adoption_rates:
@@ -614,6 +640,7 @@ def get_employee_impact(
         "seed_used": seed,
         "plan_year": plan_year,
         "section_415c_limit": limit_415c,
+        "scenario": scenario_summary,
         "hce_employees": hce_impacts,
         "nhce_employees": nhce_impacts,
         "hce_summary": hce_summary,
@@ -631,6 +658,8 @@ from fastapi.responses import StreamingResponse
 def export_csv(workspace_id: UUID, run_id: UUID):
     """Export run results as CSV."""
     storage = get_workspace_storage()
+    from decimal import Decimal
+    from app.services.acp_calculator import calculate_acp_limits
 
     # Verify workspace exists
     workspace = storage.get_workspace(workspace_id)
@@ -669,18 +698,42 @@ def export_csv(workspace_id: UUID, run_id: UUID):
     lines.append("#")
 
     # CSV header
-    lines.append("adoption_rate,contribution_rate,status,nhce_acp,hce_acp,max_allowed_acp,margin")
+    lines.append(
+        "adoption_rate,contribution_rate,status,nhce_acp,hce_acp,"
+        "limit_125,limit_2pct_uncapped,cap_2x,limit_2pct_capped,effective_limit,"
+        "binding_rule,max_allowed_acp,margin"
+    )
 
     # Data rows
     for scenario in results.get("scenarios", []):
+        nhce_acp = scenario.get("nhce_acp")
+        if nhce_acp is not None and scenario.get("effective_limit") is None:
+            limits = calculate_acp_limits(Decimal(str(nhce_acp)))
+            scenario.setdefault("limit_125", float(limits["limit_125"]))
+            scenario.setdefault("limit_2pct_uncapped", float(limits["limit_2pct_uncapped"]))
+            scenario.setdefault("cap_2x", float(limits["cap_2x"]))
+            scenario.setdefault("limit_2pct_capped", float(limits["limit_2pct_capped"]))
+            scenario.setdefault("effective_limit", float(limits["effective_limit"]))
+            scenario.setdefault(
+                "binding_rule",
+                "1.25x" if limits["limit_125"] >= limits["limit_2pct_capped"] else "2pct/2x",
+            )
+            scenario.setdefault("max_allowed_acp", scenario.get("effective_limit"))
+
         row = [
             f"{scenario['adoption_rate']:.4f}",
             f"{scenario['contribution_rate']:.4f}",
             scenario.get("status", ""),
-            f"{scenario.get('nhce_acp', 0):.4f}" if scenario.get("nhce_acp") else "",
-            f"{scenario.get('hce_acp', 0):.4f}" if scenario.get("hce_acp") else "",
-            f"{scenario.get('max_allowed_acp', 0):.4f}" if scenario.get("max_allowed_acp") else "",
-            f"{scenario.get('margin', 0):.4f}" if scenario.get("margin") else "",
+            f"{scenario.get('nhce_acp', 0):.2f}" if scenario.get("nhce_acp") is not None else "",
+            f"{scenario.get('hce_acp', 0):.2f}" if scenario.get("hce_acp") is not None else "",
+            f"{scenario.get('limit_125', 0):.2f}" if scenario.get("limit_125") is not None else "",
+            f"{scenario.get('limit_2pct_uncapped', 0):.2f}" if scenario.get("limit_2pct_uncapped") is not None else "",
+            f"{scenario.get('cap_2x', 0):.2f}" if scenario.get("cap_2x") is not None else "",
+            f"{scenario.get('limit_2pct_capped', 0):.2f}" if scenario.get("limit_2pct_capped") is not None else "",
+            f"{scenario.get('effective_limit', 0):.2f}" if scenario.get("effective_limit") is not None else "",
+            scenario.get("binding_rule", ""),
+            f"{scenario.get('max_allowed_acp', 0):.2f}" if scenario.get("max_allowed_acp") is not None else "",
+            f"{scenario.get('margin', 0):.2f}" if scenario.get("margin") is not None else "",
         ]
         lines.append(",".join(row))
 
@@ -699,6 +752,8 @@ def export_csv(workspace_id: UUID, run_id: UUID):
 def export_pdf(workspace_id: UUID, run_id: UUID):
     """Export run results as PDF report."""
     storage = get_workspace_storage()
+    from decimal import Decimal
+    from app.services.acp_calculator import calculate_acp_limits
 
     # Verify workspace exists
     workspace = storage.get_workspace(workspace_id)
@@ -738,12 +793,30 @@ def export_pdf(workspace_id: UUID, run_id: UUID):
     # Convert scenarios to format expected by export function
     export_results = []
     for s in results.get("scenarios", []):
+        nhce_acp = s.get("nhce_acp")
+        limits = None
+        if nhce_acp is not None:
+            limits = calculate_acp_limits(Decimal(str(nhce_acp)))
+        limit_125 = float(limits["limit_125"]) if limits else 0
+        limit_2pct_uncapped = float(limits["limit_2pct_uncapped"]) if limits else 0
+        cap_2x = float(limits["cap_2x"]) if limits else 0
+        limit_2pct_capped = float(limits["limit_2pct_capped"]) if limits else 0
+        effective_limit = float(limits["effective_limit"]) if limits else 0
         export_results.append({
             "adoption_rate": s.get("adoption_rate", 0) * 100,  # Convert to percentage
             "contribution_rate": s.get("contribution_rate", 0) * 100,  # Convert to percentage
             "nhce_acp": s.get("nhce_acp", 0) or 0,
             "hce_acp": s.get("hce_acp", 0) or 0,
-            "threshold": s.get("max_allowed_acp", 0) or 0,
+            "limit_125": s.get("limit_125", limit_125) or limit_125,
+            "limit_2pct_uncapped": s.get("limit_2pct_uncapped", limit_2pct_uncapped) or limit_2pct_uncapped,
+            "cap_2x": s.get("cap_2x", cap_2x) or cap_2x,
+            "limit_2pct_capped": s.get("limit_2pct_capped", limit_2pct_capped) or limit_2pct_capped,
+            "effective_limit": s.get("effective_limit", effective_limit) or effective_limit,
+            "binding_rule": s.get(
+                "binding_rule",
+                "1.25x" if limit_125 >= limit_2pct_capped else "2pct/2x",
+            ),
+            "threshold": s.get("max_allowed_acp", effective_limit) or effective_limit,
             "margin": s.get("margin", 0) or 0,
             "result": "PASS" if s.get("status") in ["PASS", "RISK"] else "FAIL",
             "limiting_test": "1.25x",  # Simplified

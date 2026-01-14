@@ -84,10 +84,13 @@ export function getStatusLabel(status: AnalysisStatus): string {
 
 export function formatPercentage(value: number | null | undefined): string {
   if (value === null || value === undefined) return 'N/A'
-  return `${(value * 100).toFixed(1)}%`
+  // Handle both fraction (0.25) and percentage (25) formats
+  const pct = value > 1 ? value : value * 100
+  return `${pct.toFixed(1)}%`
 }
 
 export function formatMargin(margin: number | null | undefined): string {
   if (margin === null || margin === undefined) return 'N/A'
-  return margin.toFixed(2)
+  const sign = margin > 0 ? '+' : ''
+  return `${sign}${margin.toFixed(2)}%`
 }

@@ -18,11 +18,25 @@ class ACPResult:
     """Result of an ACP test calculation."""
     nhce_acp: Decimal
     hce_acp: Decimal
+    limit_125: Decimal
+    limit_2pct_uncapped: Decimal
+    cap_2x: Decimal
+    limit_2pct_capped: Decimal
+    effective_limit: Decimal
     threshold: Decimal
     margin: Decimal
     result: Literal["PASS", "FAIL"]
     limiting_test: Literal["1.25x", "+2.0"]  # Legacy field
     limiting_bound: LimitingBound  # T019: New field with enum
+    binding_rule: Literal["1.25x", "2pct/2x"]
+
+
+_ACP_QUANTIZE = Decimal("0.000001")
+
+
+def _quantize_percent(value: Decimal) -> Decimal:
+    """Quantize ACP percentages to 6 decimal places for consistent precision."""
+    return value.quantize(_ACP_QUANTIZE, rounding=ROUND_HALF_UP)
 
 
 def calculate_individual_acp(
@@ -49,11 +63,7 @@ def calculate_individual_acp(
     total_contribution = Decimal(match_cents + after_tax_cents)
     compensation = Decimal(compensation_cents)
 
-    acp = (total_contribution / compensation * 100).quantize(
-        Decimal("0.000001"), rounding=ROUND_HALF_UP
-    )
-
-    return acp
+    return _quantize_percent(total_contribution / compensation * 100)
 
 
 def calculate_group_acp(individual_acps: list[Decimal]) -> Decimal:
@@ -72,7 +82,7 @@ def calculate_group_acp(individual_acps: list[Decimal]) -> Decimal:
     total = sum(individual_acps)
     count = Decimal(len(individual_acps))
 
-    return (total / count).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+    return _quantize_percent(total / count)
 
 
 def calculate_nhce_acp(participants: list[dict]) -> Decimal:
@@ -164,7 +174,29 @@ def calculate_margin(threshold: Decimal, hce_acp: Decimal) -> Decimal:
     Returns:
         Margin as Decimal (threshold - hce_acp)
     """
-    return (threshold - hce_acp).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+    return _quantize_percent(threshold - hce_acp)
+
+
+def calculate_acp_limits(nhce_acp: Decimal) -> dict[str, Decimal]:
+    """
+    Calculate ACP permissible limits with 1.25x and 2%/2x cap rules.
+
+    Returns:
+        Dictionary with limit_125, limit_2pct_uncapped, cap_2x,
+        limit_2pct_capped, effective_limit.
+    """
+    limit_125 = _quantize_percent(nhce_acp * ACP_MULTIPLIER)
+    limit_2pct_uncapped = _quantize_percent(nhce_acp + ACP_ADDER)
+    cap_2x = _quantize_percent(nhce_acp * Decimal("2.0"))
+    limit_2pct_capped = min(limit_2pct_uncapped, cap_2x)
+    effective_limit = max(limit_125, limit_2pct_capped)
+    return {
+        "limit_125": limit_125,
+        "limit_2pct_uncapped": limit_2pct_uncapped,
+        "cap_2x": cap_2x,
+        "limit_2pct_capped": limit_2pct_capped,
+        "effective_limit": effective_limit,
+    }
 
 
 def apply_acp_test(nhce_acp: Decimal, hce_acp: Decimal) -> ACPResult:
@@ -173,7 +205,7 @@ def apply_acp_test(nhce_acp: Decimal, hce_acp: Decimal) -> ACPResult:
 
     The test uses the MORE favorable of:
     1. NHCE ACP × 1.25
-    2. NHCE ACP + 2.0 percentage points
+    2. NHCE ACP + 2.0 percentage points, capped at 2× NHCE ACP
 
     The test passes if HCE ACP <= threshold (the higher of the two limits).
 
@@ -184,37 +216,40 @@ def apply_acp_test(nhce_acp: Decimal, hce_acp: Decimal) -> ACPResult:
     Returns:
         ACPResult with threshold, margin, result, and limiting test
     """
-    # Calculate both test thresholds
-    limit_125x = (nhce_acp * ACP_MULTIPLIER).quantize(
-        Decimal("0.000001"), rounding=ROUND_HALF_UP
-    )
-    limit_plus2 = (nhce_acp + ACP_ADDER).quantize(
-        Decimal("0.000001"), rounding=ROUND_HALF_UP
-    )
+    limits = calculate_acp_limits(nhce_acp)
+    limit_125 = limits["limit_125"]
+    limit_2pct_capped = limits["limit_2pct_capped"]
+    effective_limit = limits["effective_limit"]
 
     # Use the more favorable (higher) threshold
     # T019: Update to use LimitingBound enum alongside legacy field
-    if limit_125x >= limit_plus2:
-        threshold = limit_125x
+    if limit_125 >= limit_2pct_capped:
         limiting_test = "1.25x"
         limiting_bound = LimitingBound.MULTIPLE
+        binding_rule: Literal["1.25x", "2pct/2x"] = "1.25x"
     else:
-        threshold = limit_plus2
         limiting_test = "+2.0"
         limiting_bound = LimitingBound.ADDITIVE
+        binding_rule = "2pct/2x"
 
     # Calculate margin and determine result
-    margin = calculate_margin(threshold, hce_acp)
-    result: Literal["PASS", "FAIL"] = "PASS" if hce_acp <= threshold else "FAIL"
+    margin = calculate_margin(effective_limit, hce_acp)
+    result: Literal["PASS", "FAIL"] = "PASS" if hce_acp <= effective_limit else "FAIL"
 
     return ACPResult(
         nhce_acp=nhce_acp,
         hce_acp=hce_acp,
-        threshold=threshold,
+        limit_125=limit_125,
+        limit_2pct_uncapped=limits["limit_2pct_uncapped"],
+        cap_2x=limits["cap_2x"],
+        limit_2pct_capped=limit_2pct_capped,
+        effective_limit=effective_limit,
+        threshold=effective_limit,
         margin=margin,
         result=result,
         limiting_test=limiting_test,
-        limiting_bound=limiting_bound
+        limiting_bound=limiting_bound,
+        binding_rule=binding_rule,
     )
 
 
