@@ -33,17 +33,19 @@ The ACP Sensitivity Analyzer helps benefits professionals and plan compliance an
 ### Heatmap Exploration
 - Interactive visualization over adoption × contribution parameter space
 - Multiple view modes: Pass/Fail, Margin gradient, Risk Zone
-- Hover tooltips with detailed scenario metrics
+- Hover tooltips showing NHCE ACP, HCE ACP, effective limit, binding rule, and margin
 - Click-to-drill-down for employee-level details
 
 ### Employee-Level Impact Views
 - Individual employee detail drill-down for any scenario
+- **Compliance Card** showing all 9 ACP compliance metrics:
+  - NHCE ACP, HCE ACP, Limit 1.25x, Limit +2.0%, Cap 2x, Capped +2.0%, Effective Limit, Binding Rule, Margin
 - Filter by HCE/NHCE type and constraint status
 - Shows: compensation, contributions, §415(c) limit, available room, constraint status
 - Sortable and paginated data table
 
 ### Export & Reporting
-- CSV export with full calculation details and audit metadata
+- CSV export with all ACP compliance metrics (nhce_acp, hce_acp, limit_125, limit_2pct_uncapped, cap_2x, limit_2pct_capped, effective_limit, binding_rule, margin)
 - PDF report with census summary, results table, and compliance info
 - Audit-ready documentation for regulatory compliance
 
@@ -234,7 +236,21 @@ This tool implements ACP testing per **IRC Section 401(m)**:
 - **§415(c) limits**: Annual additions cap per participant
 - **§401(a)(17)**: Compensation limit enforcement
 
-The response includes `binding_rule` to show whether the effective limit came from the 1.25x test or the capped 2%/2x test.
+### ACP Compliance Metrics
+
+Each scenario returns the following compliance fields:
+
+| Field | Description |
+|-------|-------------|
+| `nhce_acp` | Average contribution percentage for NHCEs |
+| `hce_acp` | Average contribution percentage for HCEs |
+| `limit_125` | NHCE ACP × 1.25 (first test branch) |
+| `limit_2pct_uncapped` | NHCE ACP + 2.0% (second test branch, uncapped) |
+| `cap_2x` | NHCE ACP × 2.0 (cap for second test) |
+| `limit_2pct_capped` | min(limit_2pct_uncapped, cap_2x) |
+| `effective_limit` | max(limit_125, limit_2pct_capped) - the binding threshold |
+| `binding_rule` | Which formula produced the effective limit: `"1.25x"` or `"2pct/2x"` |
+| `margin` | effective_limit - hce_acp (positive = passing) |
 
 Rounding: calculations are kept in decimal precision internally, while UI/CSV/PDF display ACP values in percentage points with two decimals (basis points).
 
