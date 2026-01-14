@@ -139,13 +139,14 @@ npm install
 ### Start the Application
 
 ```bash
-# Mac/Linux
+# Mac/Linux/Windows
 python cli.py start
 
-# Windows
-python cli.py start
-# or
-mega.bat start
+# Windows PowerShell alternative
+.\mega.ps1 start
+
+# Windows CMD alternative
+.\mega.bat start
 ```
 
 This launches:
