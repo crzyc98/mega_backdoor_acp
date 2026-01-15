@@ -7,7 +7,6 @@ Supports column mapping detection, HCE determination modes, and import metadata.
 
 from __future__ import annotations
 
-import io
 import json
 import logging
 import uuid
@@ -35,7 +34,11 @@ from app.routers.schemas import (
     ParticipantListResponse,
     ParticipantResponse,
 )
-from app.services.census_parser import CensusValidationError, detect_column_mapping, process_census
+from app.services.census_parser import (
+    CensusValidationError,
+    detect_column_mapping,
+    process_census_bytes,
+)
 from app.services.constants import RATE_LIMIT
 from app.services.hce_thresholds import HCE_THRESHOLDS, get_threshold_for_year
 from app.storage.database import get_db
@@ -107,7 +110,7 @@ async def detect_column_mapping_endpoint(
 @limiter.limit(RATE_LIMIT)
 async def upload_census(
     request: Request,
-    file: Annotated[UploadFile, File(description="CSV file with participant data")],
+    file: Annotated[UploadFile, File(description="CSV or XLSX file with participant data")],
     plan_year: Annotated[int, Form(ge=2020, le=2100, description="Plan year for analysis")],
     name: Annotated[str | None, Form(max_length=255, description="Name for the census")] = None,
     client_name: Annotated[str | None, Form(max_length=255, description="Client/organization name")] = None,
@@ -124,8 +127,13 @@ async def upload_census(
     """
     # Read file content
     content = await file.read()
-    file_like = io.StringIO(content.decode("utf-8"))
     source_filename = file.filename or "unknown.csv"
+
+    if not source_filename.lower().endswith((".csv", ".xlsx")):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File must be a CSV or XLSX",
+        )
 
     # Parse column mapping if provided
     parsed_column_mapping = None
@@ -140,8 +148,9 @@ async def upload_census(
 
     try:
         # Process census (parse, validate, hash IDs)
-        df, salt, used_column_mapping = process_census(
-            file=file_like,
+        df, salt, used_column_mapping = process_census_bytes(
+            file_content=content,
+            filename=source_filename,
             census_salt=None,
             hce_mode=hce_mode,
             plan_year=plan_year,
@@ -156,7 +165,7 @@ async def upload_census(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to parse CSV: {str(e)}",
+            detail=f"Failed to parse file: {str(e)}",
         )
 
     # Generate name if not provided

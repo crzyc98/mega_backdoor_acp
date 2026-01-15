@@ -26,15 +26,16 @@ export default function StepUpload({
     <div className="space-y-6">
       <div>
         <h3 className="text-base font-medium text-gray-900 mb-2">
-          Upload CSV File
+          Upload CSV or Excel File
         </h3>
         <p className="text-sm text-gray-500 mb-4">
-          Select a CSV file containing your census data. Maximum file size: 50MB.
+          Select a CSV or XLSX file containing your census data. Maximum file size: 50MB.
         </p>
 
         <FileDropzone
           onFileSelect={onFileSelect}
           disabled={loading}
+          accept=".csv,.xlsx"
         />
       </div>
 
@@ -108,16 +109,18 @@ export default function StepUpload({
               <div>
                 <span className="text-gray-500">Delimiter:</span>
                 <span className="ml-2 font-medium text-gray-900">
-                  {filePreview.detected_delimiter === ',' ? 'Comma' :
-                   filePreview.detected_delimiter === '\t' ? 'Tab' :
-                   filePreview.detected_delimiter === ';' ? 'Semicolon' :
-                   filePreview.detected_delimiter}
+                  {filePreview.detected_delimiter
+                    ? filePreview.detected_delimiter === ',' ? 'Comma' :
+                      filePreview.detected_delimiter === '\t' ? 'Tab' :
+                      filePreview.detected_delimiter === ';' ? 'Semicolon' :
+                      filePreview.detected_delimiter
+                    : 'N/A'}
                 </span>
               </div>
               <div>
                 <span className="text-gray-500">Encoding:</span>
                 <span className="ml-2 font-medium text-gray-900">
-                  {filePreview.detected_encoding}
+                  {filePreview.detected_encoding || 'N/A'}
                 </span>
               </div>
             </div>

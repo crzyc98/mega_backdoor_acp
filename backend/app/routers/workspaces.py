@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import io
 from datetime import datetime
 from typing import Literal, Optional
 from uuid import UUID, uuid4
@@ -21,7 +20,7 @@ from app.models.workspace import (
 )
 from app.models.analysis import GridResult, GridSummary, ScenarioResult as ScenarioResultSchema
 from app.models.run import Run, RunCreate, RunListResponse, RunStatus
-from app.services.census_parser import CensusValidationError, process_census
+from app.services.census_parser import CensusValidationError, process_census_bytes
 from app.services.scenario_runner import run_grid_scenarios_v2
 from app.services.models import ScenarioResult as ScenarioResultModel, ScenarioStatus
 from app.storage.workspace_storage import get_workspace_storage
@@ -96,7 +95,7 @@ async def upload_census(
     plan_year: int = Form(...),
     hce_mode: Literal["explicit", "compensation_threshold"] = Form("explicit"),
 ) -> CensusSummary:
-    """Upload census CSV to workspace."""
+    """Upload census CSV or XLSX to workspace."""
     storage = get_workspace_storage()
 
     # Verify workspace exists
@@ -108,26 +107,26 @@ async def upload_census(
         )
 
     # Validate file type
-    if not file.filename or not file.filename.lower().endswith(".csv"):
+    if not file.filename or not file.filename.lower().endswith((".csv", ".xlsx")):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "invalid_file", "message": "File must be a CSV"},
+            detail={"error": "invalid_file", "message": "File must be a CSV or XLSX"},
         )
 
     try:
         # Read file content
         content = await file.read()
-        csv_text = content.decode("utf-8")
 
         # Process census
-        df, census_salt, column_mapping = process_census(
-            io.StringIO(csv_text),
+        df, census_salt, column_mapping = process_census_bytes(
+            content,
+            file.filename,
             hce_mode=hce_mode,
             plan_year=plan_year,
         )
 
-        # Save census data
-        storage.save_census_data(workspace_id, csv_text)
+        # Save census data as CSV
+        storage.save_census_data(workspace_id, df.to_csv(index=False))
 
         # Calculate statistics
         hce_count = int(df["is_hce"].sum())

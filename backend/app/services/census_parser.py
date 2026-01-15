@@ -7,8 +7,10 @@ and validating the census data structure. Supports column mapping and HCE determ
 
 from __future__ import annotations
 
+import io
 import hashlib
 import secrets
+from pathlib import Path
 from typing import Literal, TextIO
 
 import pandas as pd
@@ -181,6 +183,23 @@ def detect_column_mapping(
     }
 
 
+def _drop_empty_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop rows that are entirely empty or whitespace."""
+    if df.empty:
+        return df
+    normalized = df.fillna("").astype(str).apply(lambda col: col.str.strip())
+    empty_rows = normalized.eq("").all(axis=1)
+    return df.loc[~empty_rows].reset_index(drop=True)
+
+
+def _read_census_dataframe(file_content: bytes, filename: str) -> pd.DataFrame:
+    """Read CSV or XLSX census data into a DataFrame."""
+    ext = Path(filename).suffix.lower()
+    if ext == ".xlsx":
+        return pd.read_excel(io.BytesIO(file_content))
+    return pd.read_csv(io.StringIO(file_content.decode("utf-8")))
+
+
 def parse_census_csv(file: TextIO) -> pd.DataFrame:
     """
     Parse census CSV file and strip PII columns.
@@ -196,6 +215,7 @@ def parse_census_csv(file: TextIO) -> pd.DataFrame:
     """
     # Read CSV
     df = pd.read_csv(file)
+    df = _drop_empty_rows(df)
 
     # Check for required columns
     missing_columns = []
@@ -306,35 +326,38 @@ def validate_census_data(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def process_census(
-    file: TextIO,
+def process_census_bytes(
+    file_content: bytes,
+    filename: str,
     census_salt: str | None = None,
     hce_mode: HCEMode = "explicit",
     plan_year: int | None = None,
     column_mapping: dict[str, str] | None = None,
 ) -> tuple[pd.DataFrame, str, dict[str, str]]:
-    """
-    Complete census processing: parse, validate, and hash IDs.
+    """Process census data from CSV or XLSX upload bytes."""
+    df = _read_census_dataframe(file_content, filename)
+    return process_census_dataframe(
+        df,
+        census_salt=census_salt,
+        hce_mode=hce_mode,
+        plan_year=plan_year,
+        column_mapping=column_mapping,
+    )
 
-    Args:
-        file: File-like object containing CSV data
-        census_salt: Optional salt for ID hashing (generated if not provided)
-        hce_mode: HCE determination mode ('explicit' or 'compensation_threshold')
-        plan_year: Plan year (required for compensation_threshold mode)
-        column_mapping: Optional custom column mapping (target_field -> source_column)
 
-    Returns:
-        Tuple of (processed DataFrame with internal IDs, census salt, column mapping used)
-
-    Raises:
-        CensusValidationError: If parsing or validation fails
-    """
+def process_census_dataframe(
+    df: pd.DataFrame,
+    census_salt: str | None = None,
+    hce_mode: HCEMode = "explicit",
+    plan_year: int | None = None,
+    column_mapping: dict[str, str] | None = None,
+) -> tuple[pd.DataFrame, str, dict[str, str]]:
+    """Process census data from a pre-loaded DataFrame."""
     # Generate salt if not provided
     if census_salt is None:
         census_salt = generate_census_salt()
 
-    # Read CSV into DataFrame
-    df = pd.read_csv(file)
+    df = _drop_empty_rows(df)
 
     # Get column mapping (auto-detect if not provided)
     if column_mapping is None:
@@ -396,6 +419,39 @@ def process_census(
     df["compensation_cents"] = (df["compensation"] * 100).astype(int)
 
     return df, census_salt, column_mapping
+
+
+def process_census(
+    file: TextIO,
+    census_salt: str | None = None,
+    hce_mode: HCEMode = "explicit",
+    plan_year: int | None = None,
+    column_mapping: dict[str, str] | None = None,
+) -> tuple[pd.DataFrame, str, dict[str, str]]:
+    """
+    Complete census processing: parse, validate, and hash IDs.
+
+    Args:
+        file: File-like object containing CSV data
+        census_salt: Optional salt for ID hashing (generated if not provided)
+        hce_mode: HCE determination mode ('explicit' or 'compensation_threshold')
+        plan_year: Plan year (required for compensation_threshold mode)
+        column_mapping: Optional custom column mapping (target_field -> source_column)
+
+    Returns:
+        Tuple of (processed DataFrame with internal IDs, census salt, column mapping used)
+
+    Raises:
+        CensusValidationError: If parsing or validation fails
+    """
+    df = pd.read_csv(file)
+    return process_census_dataframe(
+        df,
+        census_salt=census_salt,
+        hce_mode=hce_mode,
+        plan_year=plan_year,
+        column_mapping=column_mapping,
+    )
 
 
 def process_census_simple(

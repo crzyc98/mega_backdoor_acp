@@ -12,6 +12,7 @@ import io
 import re
 import uuid
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Generator
 
 import pandas as pd
@@ -141,56 +142,27 @@ def detect_encoding(file_bytes: bytes) -> str:
     return "utf-8"  # Default fallback
 
 
-def parse_csv_preview(
+def _drop_empty_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop rows that are entirely empty or whitespace."""
+    if df.empty:
+        return df
+    normalized = df.fillna("").astype(str).apply(lambda col: col.str.strip())
+    empty_rows = normalized.eq("").all(axis=1)
+    return df.loc[~empty_rows].reset_index(drop=True)
+
+
+def _read_import_dataframe(
     file_content: bytes,
-    max_rows: int = 5,
-) -> tuple[list[str], list[list[str]], int, str, str]:
-    """
-    Parse CSV file and return headers and sample rows.
-
-    Args:
-        file_content: Raw file bytes
-        max_rows: Maximum sample rows to return
-
-    Returns:
-        Tuple of (headers, sample_rows, total_rows, delimiter, encoding)
-    """
-    encoding = detect_encoding(file_content)
-    content = file_content.decode(encoding)
-
-    delimiter = detect_delimiter(content[:4096])
-
-    # Parse with pandas
-    df = pd.read_csv(
-        io.StringIO(content),
-        delimiter=delimiter,
-        dtype=str,
-        keep_default_na=False,
-    )
-
-    headers = list(df.columns)
-    sample_rows = df.head(max_rows).values.tolist()
-    total_rows = len(df)
-
-    return headers, sample_rows, total_rows, delimiter, encoding
-
-
-def parse_csv_file(
-    file_content: bytes,
+    filename: str | None = None,
     delimiter: str | None = None,
     encoding: str | None = None,
-) -> pd.DataFrame:
-    """
-    Parse CSV file into a DataFrame.
+) -> tuple[pd.DataFrame, str | None, str | None]:
+    """Read CSV or XLSX content into a DataFrame."""
+    ext = Path(filename or "").suffix.lower()
+    if ext == ".xlsx":
+        df = pd.read_excel(io.BytesIO(file_content), dtype=str, keep_default_na=False)
+        return df, None, None
 
-    Args:
-        file_content: Raw file bytes
-        delimiter: Optional delimiter override
-        encoding: Optional encoding override
-
-    Returns:
-        DataFrame with all rows as strings
-    """
     if encoding is None:
         encoding = detect_encoding(file_content)
 
@@ -206,7 +178,58 @@ def parse_csv_file(
         keep_default_na=False,
     )
 
-    return df
+    return df, delimiter, encoding
+
+
+def parse_csv_preview(
+    file_content: bytes,
+    filename: str | None = None,
+    max_rows: int = 5,
+) -> tuple[list[str], list[list[str]], int, str | None, str | None]:
+    """
+    Parse CSV file and return headers and sample rows.
+
+    Args:
+        file_content: Raw file bytes
+        max_rows: Maximum sample rows to return
+
+    Returns:
+        Tuple of (headers, sample_rows, total_rows, delimiter, encoding)
+    """
+    df, delimiter, encoding = _read_import_dataframe(file_content, filename)
+    df = _drop_empty_rows(df)
+
+    headers = list(df.columns)
+    sample_rows = df.head(max_rows).values.tolist()
+    total_rows = len(df)
+
+    return headers, sample_rows, total_rows, delimiter, encoding
+
+
+def parse_csv_file(
+    file_content: bytes,
+    filename: str | None = None,
+    delimiter: str | None = None,
+    encoding: str | None = None,
+) -> pd.DataFrame:
+    """
+    Parse CSV file into a DataFrame.
+
+    Args:
+        file_content: Raw file bytes
+        delimiter: Optional delimiter override
+        encoding: Optional encoding override
+
+    Returns:
+        DataFrame with all rows as strings
+    """
+    df, _, _ = _read_import_dataframe(
+        file_content,
+        filename=filename,
+        delimiter=delimiter,
+        encoding=encoding,
+    )
+    return _drop_empty_rows(df)
 
 
 # ============================================================================

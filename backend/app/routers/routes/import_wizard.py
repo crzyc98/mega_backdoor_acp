@@ -154,8 +154,8 @@ async def create_import_session(
     Returns session details with file preview information.
     """
     # Validate file type
-    if not file.filename or not file.filename.lower().endswith(".csv"):
-        raise HTTPException(status_code=400, detail="File must be a CSV")
+    if not file.filename or not file.filename.lower().endswith((".csv", ".xlsx")):
+        raise HTTPException(status_code=400, detail="File must be a CSV or XLSX")
 
     # Read file content
     content = await file.read()
@@ -170,9 +170,12 @@ async def create_import_session(
 
     # Parse file preview
     try:
-        headers, sample_rows, total_rows, delimiter, encoding = parse_csv_preview(content)
+        headers, sample_rows, total_rows, delimiter, encoding = parse_csv_preview(
+            content,
+            filename=file.filename,
+        )
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to parse CSV: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Failed to parse file: {str(e)}")
 
     # Create session
     session = create_session(
@@ -184,7 +187,8 @@ async def create_import_session(
 
     # Save file to temp directory
     ensure_upload_dir()
-    file_path = UPLOAD_DIR / f"{session.id}.csv"
+    ext = Path(file.filename).suffix.lower() if file.filename else ".csv"
+    file_path = UPLOAD_DIR / f"{session.id}{ext}"
     with open(file_path, "wb") as f:
         f.write(content)
     session.file_reference = str(file_path)
@@ -221,8 +225,8 @@ async def create_workspace_import_session(
     T009: Workspace-scoped session creation with workspace_id association.
     """
     # Validate file type
-    if not file.filename or not file.filename.lower().endswith(".csv"):
-        raise HTTPException(status_code=400, detail="File must be a CSV")
+    if not file.filename or not file.filename.lower().endswith((".csv", ".xlsx")):
+        raise HTTPException(status_code=400, detail="File must be a CSV or XLSX")
 
     # Read file content
     content = await file.read()
@@ -241,9 +245,12 @@ async def create_workspace_import_session(
 
     # Parse file preview
     try:
-        headers, sample_rows, total_rows, delimiter, encoding = parse_csv_preview(content)
+        headers, sample_rows, total_rows, delimiter, encoding = parse_csv_preview(
+            content,
+            filename=file.filename,
+        )
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to parse CSV: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Failed to parse file: {str(e)}")
 
     # Check for headers-only file
     if total_rows == 0:
@@ -260,7 +267,8 @@ async def create_workspace_import_session(
 
     # Save file to temp directory
     ensure_upload_dir()
-    file_path = UPLOAD_DIR / f"{session.id}.csv"
+    ext = Path(file.filename).suffix.lower() if file.filename else ".csv"
+    file_path = UPLOAD_DIR / f"{session.id}{ext}"
     with open(file_path, "wb") as f:
         f.write(content)
     session.file_reference = str(file_path)
@@ -388,7 +396,10 @@ async def get_file_preview(
     with open(file_path, "rb") as f:
         content = f.read()
 
-    headers, sample_rows, total_rows, delimiter, encoding = parse_csv_preview(content)
+    headers, sample_rows, total_rows, delimiter, encoding = parse_csv_preview(
+        content,
+        filename=session.original_filename or file_path.name,
+    )
 
     return FilePreview(
         headers=headers,
@@ -485,7 +496,10 @@ async def detect_session_date_format(
     with open(file_path, "rb") as f:
         content = f.read()
 
-    df = parse_csv_file(content)
+    df = parse_csv_file(
+        content,
+        filename=session.original_filename or file_path.name,
+    )
     sample_values = get_date_column_values(df, session.column_mapping)
 
     if not sample_values:
@@ -535,7 +549,10 @@ async def preview_session_date_format(
     with open(file_path, "rb") as f:
         content = f.read()
 
-    df = parse_csv_file(content)
+    df = parse_csv_file(
+        content,
+        filename=session.original_filename or file_path.name,
+    )
     sample_values = get_date_column_values(df, session.column_mapping)
 
     # Preview format
@@ -624,7 +641,10 @@ async def run_validation(
     with open(file_path, "rb") as f:
         content = f.read()
 
-    df = parse_csv_file(content)
+    df = parse_csv_file(
+        content,
+        filename=session.original_filename or file_path.name,
+    )
     issues, error_count, warning_count, info_count = validate_file(
         df, session.column_mapping, session_id
     )
@@ -730,7 +750,10 @@ async def get_preview_rows(
     with open(file_path, "rb") as f:
         content = f.read()
 
-    df = parse_csv_file(content)
+    df = parse_csv_file(
+        content,
+        filename=session.original_filename or file_path.name,
+    )
 
     # Get all issues for this session
     all_issues, total_issues = issue_repo.get_by_session(session_id, limit=10000)
@@ -957,13 +980,14 @@ async def execute_import(
             # Verify workspace exists
             workspace = storage.get_workspace(workspace_uuid)
             if workspace:
-                # Read the CSV file
+                # Read the uploaded file (CSV or XLSX)
                 csv_path = Path(session.file_reference)
                 if csv_path.exists():
-                    csv_text = csv_path.read_text(encoding="utf-8")
-
-                    # Read CSV
-                    df = pd.read_csv(io.StringIO(csv_text))
+                    file_bytes = csv_path.read_bytes()
+                    df = parse_csv_file(
+                        file_bytes,
+                        filename=session.original_filename or csv_path.name,
+                    )
 
                     # Apply column mapping to transform raw data
                     mapping = session.column_mapping or {}
@@ -971,11 +995,16 @@ async def execute_import(
                     # Create processed dataframe with expected columns
                     processed_df = pd.DataFrame()
 
+                    def get_numeric(col: str | None) -> pd.Series:
+                        if not col or col not in df.columns:
+                            return pd.Series([0] * len(df))
+                        return pd.to_numeric(df[col], errors="coerce").fillna(0)
+
                     # Generate internal_id from SSN (hashed)
                     ssn_col = mapping.get("ssn")
                     if ssn_col and ssn_col in df.columns:
                         census_salt = str(uuid4())[:8]
-                        processed_df["internal_id"] = df[ssn_col].apply(
+                        processed_df["internal_id"] = df[ssn_col].fillna("").astype(str).apply(
                             lambda x: hashlib.sha256(f"{x}{census_salt}".encode()).hexdigest()[:16]
                         )
                     else:
@@ -983,12 +1012,9 @@ async def execute_import(
 
                     # Map compensation (convert to cents)
                     comp_col = mapping.get("compensation")
-                    if comp_col and comp_col in df.columns:
-                        processed_df["compensation"] = df[comp_col]
-                        processed_df["compensation_cents"] = (df[comp_col] * 100).astype(int)
-                    else:
-                        processed_df["compensation"] = 0
-                        processed_df["compensation_cents"] = 0
+                    comp_values = get_numeric(comp_col)
+                    processed_df["compensation"] = comp_values
+                    processed_df["compensation_cents"] = (comp_values * 100).round().astype(int)
 
                     # Determine HCE status based on compensation threshold
                     hce_threshold = 155000 if request.plan_year >= 2024 else 150000
@@ -996,41 +1022,31 @@ async def execute_import(
 
                     # Map contribution columns (convert to cents)
                     pre_tax_col = mapping.get("employee_pre_tax")
-                    if pre_tax_col and pre_tax_col in df.columns:
-                        processed_df["pre_tax_cents"] = (df[pre_tax_col] * 100).astype(int)
-                    else:
-                        processed_df["pre_tax_cents"] = 0
+                    pre_tax_values = get_numeric(pre_tax_col)
+                    processed_df["pre_tax_cents"] = (pre_tax_values * 100).round().astype(int)
 
                     after_tax_col = mapping.get("employee_after_tax")
-                    if after_tax_col and after_tax_col in df.columns:
-                        processed_df["after_tax_cents"] = (df[after_tax_col] * 100).astype(int)
-                    else:
-                        processed_df["after_tax_cents"] = 0
+                    after_tax_values = get_numeric(after_tax_col)
+                    processed_df["after_tax_cents"] = (after_tax_values * 100).round().astype(int)
 
                     roth_col = mapping.get("employee_roth")
-                    if roth_col and roth_col in df.columns:
-                        processed_df["roth_cents"] = (df[roth_col] * 100).astype(int)
-                    else:
-                        processed_df["roth_cents"] = 0
+                    roth_values = get_numeric(roth_col)
+                    processed_df["roth_cents"] = (roth_values * 100).round().astype(int)
 
                     match_col = mapping.get("employer_match")
-                    if match_col and match_col in df.columns:
-                        processed_df["match_cents"] = (df[match_col] * 100).astype(int)
-                    else:
-                        processed_df["match_cents"] = 0
+                    match_values = get_numeric(match_col)
+                    processed_df["match_cents"] = (match_values * 100).round().astype(int)
 
                     non_elective_col = mapping.get("employer_non_elective")
-                    if non_elective_col and non_elective_col in df.columns:
-                        processed_df["non_elective_cents"] = (df[non_elective_col] * 100).astype(int)
-                    else:
-                        processed_df["non_elective_cents"] = 0
+                    non_elective_values = get_numeric(non_elective_col)
+                    processed_df["non_elective_cents"] = (non_elective_values * 100).round().astype(int)
 
                     # Calculate deferral_rate (pre_tax / compensation)
                     processed_df["deferral_rate"] = 0.0
                     mask = processed_df["compensation"] > 0
-                    if mask.any() and pre_tax_col and pre_tax_col in df.columns:
+                    if mask.any():
                         processed_df.loc[mask, "deferral_rate"] = (
-                            df.loc[mask, pre_tax_col] / processed_df.loc[mask, "compensation"]
+                            pre_tax_values.loc[mask] / processed_df.loc[mask, "compensation"]
                         )
 
                     # Save processed census data as CSV

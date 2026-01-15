@@ -11,7 +11,7 @@ interface FileDropzoneProps {
 }
 
 export default function FileDropzone({
-  accept = '.csv',
+  accept = '.csv,.xlsx',
   onFileSelect,
   disabled = false,
 }: FileDropzoneProps) {
@@ -101,10 +101,10 @@ export default function FileDropzone({
         <p className="mt-4 text-sm text-gray-600">
           {isDragging
             ? 'Drop your file here...'
-            : 'Drop your census CSV file here, or click to browse'}
+            : 'Drop your census CSV or Excel file here, or click to browse'}
         </p>
         <p className="mt-2 text-xs text-gray-400">
-          Supported format: CSV with employee_id, compensation, and HCE status columns
+          Supported formats: CSV or XLSX with employee_id, compensation, and HCE status columns
         </p>
       </label>
     </div>

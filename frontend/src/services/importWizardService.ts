@@ -33,7 +33,7 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 // ============================================================================
 
 /**
- * Create a new import session by uploading a CSV file.
+ * Create a new import session by uploading a CSV or XLSX file.
  */
 async function createSession(
   workspaceId: string,
