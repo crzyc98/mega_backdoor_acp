@@ -200,6 +200,21 @@ def _read_census_dataframe(file_content: bytes, filename: str) -> pd.DataFrame:
     return pd.read_csv(io.StringIO(file_content.decode("utf-8")))
 
 
+def _coerce_numeric(series: pd.Series) -> pd.Series:
+    """Coerce currency/percent strings into numeric values."""
+    cleaned = (
+        series.fillna("")
+        .astype(str)
+        .str.strip()
+        .str.replace(r"^\((.*)\)$", r"-\1", regex=True)
+        .str.replace("$", "", regex=False)
+        .str.replace(",", "", regex=False)
+        .str.replace("%", "", regex=False)
+        .str.replace(" ", "", regex=False)
+    )
+    return pd.to_numeric(cleaned, errors="coerce")
+
+
 def parse_census_csv(file: TextIO) -> pd.DataFrame:
     """
     Parse census CSV file and strip PII columns.
@@ -242,6 +257,10 @@ def parse_census_csv(file: TextIO) -> pd.DataFrame:
     # Normalize HCE Status to boolean
     if "is_hce" in df.columns:
         df["is_hce"] = df["is_hce"].apply(_normalize_hce_status)
+
+    for field in ("compensation", "deferral_rate", "match_rate", "after_tax_rate"):
+        if field in df.columns:
+            df[field] = _coerce_numeric(df[field]).fillna(0)
 
     return df
 
@@ -390,6 +409,10 @@ def process_census_dataframe(
     if "after_tax_rate" not in df.columns:
         df["after_tax_rate"] = 0.0
 
+    for field in ("compensation", "deferral_rate", "match_rate", "after_tax_rate"):
+        if field in df.columns:
+            df[field] = _coerce_numeric(df[field]).fillna(0)
+
     # Handle HCE determination based on mode
     if hce_mode == "compensation_threshold":
         if plan_year is None:
@@ -417,6 +440,10 @@ def process_census_dataframe(
 
     # Convert compensation to cents for integer storage
     df["compensation_cents"] = (df["compensation"] * 100).astype(int)
+
+    # Derive ACP contribution cents for analysis
+    df["match_cents"] = (df["compensation_cents"] * df["match_rate"] / 100).round().astype(int)
+    df["after_tax_cents"] = (df["compensation_cents"] * df["after_tax_rate"] / 100).round().astype(int)
 
     return df, census_salt, column_mapping
 

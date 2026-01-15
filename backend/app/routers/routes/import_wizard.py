@@ -998,7 +998,18 @@ async def execute_import(
                     def get_numeric(col: str | None) -> pd.Series:
                         if not col or col not in df.columns:
                             return pd.Series([0] * len(df))
-                        return pd.to_numeric(df[col], errors="coerce").fillna(0)
+                        cleaned = (
+                            df[col]
+                            .fillna("")
+                            .astype(str)
+                            .str.strip()
+                            .str.replace(r"^\((.*)\)$", r"-\1", regex=True)
+                            .str.replace("$", "", regex=False)
+                            .str.replace(",", "", regex=False)
+                            .str.replace("%", "", regex=False)
+                            .str.replace(" ", "", regex=False)
+                        )
+                        return pd.to_numeric(cleaned, errors="coerce").fillna(0)
 
                     # Generate internal_id from SSN (hashed)
                     ssn_col = mapping.get("ssn")
