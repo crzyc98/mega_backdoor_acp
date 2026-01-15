@@ -28,6 +28,19 @@ DEFAULT_UI_PORT = 5173  # Vite default
 processes = []
 
 
+def get_npm_command() -> str:
+    """Return the npm executable path, or an empty string if not found."""
+    if sys.platform == "win32":
+        candidates = ("npm.cmd", "npm.exe", "npm")
+    else:
+        candidates = ("npm",)
+    for candidate in candidates:
+        resolved = shutil.which(candidate)
+        if resolved:
+            return resolved
+    return ""
+
+
 def kill_port(port: int) -> bool:
     """Kill any process using the specified port (cross-platform)."""
     if sys.platform == "win32":
@@ -134,8 +147,12 @@ def start(api_port, ui_port, api_only, ui_only, no_browser):
         sys.exit(1)
 
     # Check if npm is available
-    if not shutil.which("npm") and not api_only:
-        click.secho("Error: npm is required for the frontend. Please install Node.js.", fg="red")
+    npm_cmd = get_npm_command()
+    if not npm_cmd and not api_only:
+        click.secho(
+            "Error: npm is required for the frontend. Install Node.js and ensure npm is on PATH.",
+            fg="red",
+        )
         sys.exit(1)
 
     # Check if frontend dependencies are installed
@@ -144,7 +161,7 @@ def start(api_port, ui_port, api_only, ui_only, no_browser):
         if not node_modules.exists():
             click.secho("Installing frontend dependencies...", fg="yellow")
             result = subprocess.run(
-                ["npm", "install"],
+                [npm_cmd, "install"],
                 cwd=FRONTEND_DIR,
                 capture_output=True,
             )
@@ -188,7 +205,7 @@ def start(api_port, ui_port, api_only, ui_only, no_browser):
 
     # Start React frontend with Vite
     if start_ui:
-        ui_cmd = ["npm", "run", "dev", "--", "--port", str(ui_port), "--host"]
+        ui_cmd = [npm_cmd, "run", "dev", "--", "--port", str(ui_port), "--host"]
         if no_browser:
             ui_cmd.append("--no-open")
         else:
@@ -229,8 +246,15 @@ def test(cov, unit, integration, verbose, backend, frontend):
     if frontend:
         # Run frontend type checking
         click.secho("  Running frontend type check...", fg="cyan")
+        npm_cmd = get_npm_command()
+        if not npm_cmd:
+            click.secho(
+                "Error: npm is required for the frontend. Install Node.js and ensure npm is on PATH.",
+                fg="red",
+            )
+            sys.exit(1)
         result = subprocess.run(
-            ["npm", "run", "typecheck"],
+            [npm_cmd, "run", "typecheck"],
             cwd=FRONTEND_DIR,
         )
         sys.exit(result.returncode)
