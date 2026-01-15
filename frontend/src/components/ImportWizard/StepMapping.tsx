@@ -29,8 +29,9 @@ interface StepMappingProps {
 // Field metadata for display
 const FIELD_METADATA: Record<string, { label: string; required: boolean; description: string }> = {
   ssn: { label: 'SSN', required: true, description: 'Social Security Number (or hashed identifier)' },
-  dob: { label: 'Date of Birth', required: true, description: 'Employee date of birth' },
-  hire_date: { label: 'Hire Date', required: true, description: 'Employment start date' },
+  dob: { label: 'Date of Birth', required: false, description: 'Employee date of birth (for ACP eligibility)' },
+  hire_date: { label: 'Hire Date', required: false, description: 'Employment start date (for ACP eligibility)' },
+  termination_date: { label: 'Termination Date', required: false, description: 'Employment end date (for ACP eligibility)' },
   compensation: { label: 'Compensation', required: true, description: 'Annual compensation amount' },
   employee_pre_tax: { label: 'Pre-Tax Contributions', required: true, description: 'Employee 401(k) deferrals' },
   employee_after_tax: { label: 'After-Tax Contributions', required: true, description: 'Voluntary after-tax contributions' },
@@ -98,9 +99,15 @@ export default function StepMapping({
     ...columns.map((col) => ({ value: col, label: col })),
   ]
 
-  // Check if all required fields are mapped
-  const requiredFields = suggestion?.required_fields || Object.keys(FIELD_METADATA)
-  const missingRequired = requiredFields.filter((f) => !mapping[f])
+  // Show all fields from FIELD_METADATA, but only require the ones marked as required
+  // or those returned by the API as required_fields
+  const allFields = Object.keys(FIELD_METADATA)
+  const apiRequiredFields = suggestion?.required_fields || []
+  const requiredFieldsSet = new Set([
+    ...apiRequiredFields,
+    ...allFields.filter(f => FIELD_METADATA[f]?.required)
+  ])
+  const missingRequired = Array.from(requiredFieldsSet).filter((f) => !mapping[f])
   const canSubmit = missingRequired.length === 0
 
   return (
@@ -130,15 +137,16 @@ export default function StepMapping({
 
       <div className="bg-gray-50 rounded-lg p-4">
         <div className="grid gap-4">
-          {requiredFields.map((field) => {
+          {allFields.map((field) => {
             const meta = FIELD_METADATA[field] || {
               label: field.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
-              required: true,
+              required: false,
               description: '',
             }
+            const isRequired = requiredFieldsSet.has(field)
             const currentValue = mapping[field] || ''
             const confidence = suggestion?.confidence_scores?.[field]
-            const isMissing = !currentValue
+            const isMissing = isRequired && !currentValue
 
             return (
               <div
@@ -152,7 +160,7 @@ export default function StepMapping({
                     <span className="text-sm font-medium text-gray-900">
                       {meta.label}
                     </span>
-                    {meta.required && (
+                    {isRequired && (
                       <span className="text-xs text-red-500">*</span>
                     )}
                     {confidence !== undefined && (

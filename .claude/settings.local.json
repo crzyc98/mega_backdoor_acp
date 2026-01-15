@@ -16,7 +16,8 @@
       "Bash(pip3 install:*)",
       "Bash(chmod:*)",
       "Bash(claude mcp add:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(npm run build:*)"
     ],
     "deny": []
   }
