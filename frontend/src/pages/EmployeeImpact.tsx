@@ -378,7 +378,7 @@ export default function EmployeeImpact() {
 
       {/* Summary cards */}
       {impactData && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <div className="bg-purple-50 rounded-lg p-4">
             <p className="text-sm text-purple-600 mb-1">HCE Count</p>
             <p className="text-2xl font-bold text-purple-700">{impactData.hce_summary.total_count}</p>
@@ -389,6 +389,10 @@ export default function EmployeeImpact() {
           <div className="bg-gray-50 rounded-lg p-4">
             <p className="text-sm text-gray-600 mb-1">NHCE Count</p>
             <p className="text-2xl font-bold text-gray-700">{impactData.nhce_summary.total_count}</p>
+          </div>
+          <div className="bg-amber-50 rounded-lg p-4">
+            <p className="text-sm text-amber-700 mb-1">Excluded Employees</p>
+            <p className="text-2xl font-bold text-amber-800">{impactData.excluded_count}</p>
           </div>
           <div className="bg-green-50 rounded-lg p-4">
             <p className="text-sm text-green-600 mb-1">Total Mega Backdoor</p>

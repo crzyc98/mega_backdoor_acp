@@ -409,6 +409,11 @@ class EmployeeImpactView(BaseModel):
         ...,
         description="§415(c) limit applied"
     )
+    excluded_count: int = Field(
+        ...,
+        ge=0,
+        description="Number of participants excluded from ACP"
+    )
 
     # Employee data
     hce_employees: list[EmployeeImpact] = Field(

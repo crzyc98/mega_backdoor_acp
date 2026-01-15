@@ -429,6 +429,11 @@ class EmployeeImpactView(BaseModel):
         ...,
         description="§415(c) limit applied"
     )
+    excluded_count: int = Field(
+        0,
+        ge=0,
+        description="Number of participants excluded via permissive disaggregation"
+    )
 
     # Employee data
     hce_employees: list[EmployeeImpact] = Field(

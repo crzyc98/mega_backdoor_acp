@@ -261,9 +261,61 @@ class ParticipantRepository:
         return [Participant.from_row(dict(row)) for row in cursor.fetchall()]
 
     def get_as_calculation_dicts(self, census_id: str) -> list[dict]:
-        """Get participants as dictionaries ready for ACP calculation."""
+        """
+        Get participants as dictionaries ready for ACP calculation.
+
+        Applies permissive disaggregation filtering based on ACP eligibility.
+        Participants without DOB/hire_date are included (fail open for
+        backwards compatibility).
+        """
+        from app.services.acp_eligibility import (
+            ACPInclusionError,
+            determine_acp_inclusion,
+            plan_year_bounds,
+        )
+
+        # Get plan year from census
+        census_cursor = self.conn.execute(
+            "SELECT plan_year FROM census WHERE id = ?",
+            (census_id,),
+        )
+        census_row = census_cursor.fetchone()
+        if census_row is None:
+            return []
+
+        plan_year_start, plan_year_end = plan_year_bounds(census_row["plan_year"])
         participants = self.get_by_census(census_id)
-        return [p.to_calculation_dict() for p in participants]
+        calculation_dicts: list[dict] = []
+
+        for participant in participants:
+            participant_dict = participant.to_calculation_dict()
+
+            try:
+                inclusion = determine_acp_inclusion(
+                    dob=participant.dob,
+                    hire_date=participant.hire_date,
+                    termination_date=participant.termination_date,
+                    plan_year_start=plan_year_start,
+                    plan_year_end=plan_year_end,
+                )
+                participant_dict["eligibility_date"] = inclusion.eligibility_date.isoformat()
+                participant_dict["entry_date"] = inclusion.entry_date.isoformat()
+                participant_dict["acp_includable"] = inclusion.acp_includable
+                participant_dict["acp_exclusion_reason"] = inclusion.acp_exclusion_reason
+
+                if inclusion.acp_includable:
+                    calculation_dicts.append(participant_dict)
+            except ACPInclusionError:
+                # If DOB/hire_date missing, include participant (fail open)
+                # for backwards compatibility with census data without
+                # eligibility fields
+                participant_dict["eligibility_date"] = None
+                participant_dict["entry_date"] = None
+                participant_dict["acp_includable"] = True
+                participant_dict["acp_exclusion_reason"] = None
+                calculation_dicts.append(participant_dict)
+
+        return calculation_dicts
 
     def list_participants(
         self,

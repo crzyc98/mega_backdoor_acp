@@ -97,6 +97,9 @@ class Participant:
     deferral_rate: float
     match_rate: float
     after_tax_rate: float
+    dob: str | None = None
+    hire_date: str | None = None
+    termination_date: str | None = None
 
     @property
     def match_cents(self) -> int:
@@ -119,6 +122,9 @@ class Participant:
             "deferral_rate": self.deferral_rate,
             "match_rate": self.match_rate,
             "after_tax_rate": self.after_tax_rate,
+            "dob": self.dob,
+            "hire_date": self.hire_date,
+            "termination_date": self.termination_date,
         }
 
     def to_calculation_dict(self) -> dict:
@@ -129,6 +135,9 @@ class Participant:
             "match_cents": self.match_cents,
             "after_tax_cents": self.after_tax_cents,
             "compensation_cents": self.compensation_cents,
+            "dob": self.dob,
+            "hire_date": self.hire_date,
+            "termination_date": self.termination_date,
         }
 
     @classmethod
@@ -143,6 +152,9 @@ class Participant:
             deferral_rate=row["deferral_rate"],
             match_rate=row["match_rate"],
             after_tax_rate=row["after_tax_rate"],
+            dob=row.get("dob"),
+            hire_date=row.get("hire_date"),
+            termination_date=row.get("termination_date"),
         )
 
 

@@ -318,6 +318,7 @@ class TestEmployeeImpactView:
             seed_used=42,
             plan_year=2025,
             section_415c_limit=69000,
+            excluded_count=0,
             hce_employees=[hce_impact],
             nhce_employees=[nhce_impact],
             hce_summary=hce_summary,
@@ -363,6 +364,8 @@ class TestEmployeeImpactService:
             deferral_rate=12.78,  # Results in ~$23,000
             match_rate=5.0,  # Results in $9,000
             after_tax_rate=0.0,
+            dob="1980-01-01",
+            hire_date="2010-01-01",
         )
 
     @pytest.fixture
@@ -377,6 +380,8 @@ class TestEmployeeImpactService:
             deferral_rate=10.0,
             match_rate=5.0,
             after_tax_rate=0.67,
+            dob="1985-02-02",
+            hire_date="2012-06-01",
         )
 
     @pytest.fixture
@@ -458,6 +463,8 @@ class TestEmployeeImpactService:
                 deferral_rate=10.0,
                 match_rate=5.0,
                 after_tax_rate=0.0,
+                dob="1980-01-01",
+                hire_date="2010-01-01",
             )
             for i in range(10)
         ]
@@ -512,6 +519,8 @@ class TestEmployeeImpactService:
             deferral_rate=10.0,  # $10,000 deferral
             match_rate=5.0,  # $5,000 match
             after_tax_rate=0.0,
+            dob="1980-01-01",
+            hire_date="2010-01-01",
         )
 
         mock_census_repo.get.return_value = sample_census
@@ -546,6 +555,8 @@ class TestEmployeeImpactService:
             deferral_rate=6.57,  # ~$23,000
             match_rate=5.0,  # $17,500
             after_tax_rate=8.57,  # ~$30,000 -> Total ~$70,500 (over limit)
+            dob="1980-01-01",
+            hire_date="2010-01-01",
         )
 
         mock_census_repo.get.return_value = sample_census
@@ -578,6 +589,8 @@ class TestEmployeeImpactService:
             deferral_rate=11.5,  # $23,000
             match_rate=10.0,  # $20,000
             after_tax_rate=10.0,  # $20,000 -> Total $63,000, room = $6,000
+            dob="1980-01-01",
+            hire_date="2010-01-01",
         )
 
         mock_census_repo.get.return_value = sample_census
@@ -606,16 +619,19 @@ class TestEmployeeImpactService:
                 id="p1", census_id="census-123", internal_id="EMP-001",
                 is_hce=True, compensation_cents=10000000,  # $100,000
                 deferral_rate=10.0, match_rate=5.0, after_tax_rate=0.0,
+                dob="1980-01-01", hire_date="2010-01-01",
             ),
             Participant(  # At limit - total ~$71,000 (over limit)
                 id="p2", census_id="census-123", internal_id="EMP-002",
                 is_hce=True, compensation_cents=35000000,  # $350,000
                 deferral_rate=6.57, match_rate=5.0, after_tax_rate=8.57,  # ~$71,000 total
+                dob="1980-01-01", hire_date="2010-01-01",
             ),
             Participant(  # Reduced - total ~$63,000, room for $7,000 but requests $12,000
                 id="p3", census_id="census-123", internal_id="EMP-003",
                 is_hce=True, compensation_cents=20000000,  # $200,000
                 deferral_rate=11.5, match_rate=10.0, after_tax_rate=10.0,  # ~$63,000 total
+                dob="1980-01-01", hire_date="2010-01-01",
             ),
         ]
 

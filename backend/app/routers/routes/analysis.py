@@ -635,6 +635,7 @@ async def get_employee_impact(
         seed_used=result.seed_used,
         plan_year=result.plan_year,
         section_415c_limit=result.section_415c_limit,
+        excluded_count=result.excluded_count,
         hce_employees=[
             EmployeeImpactResponse(
                 employee_id=e.employee_id,

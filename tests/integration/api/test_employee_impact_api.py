@@ -97,6 +97,8 @@ def test_census(db_connection):
             deferral_rate=10.0,  # $10,000 deferral
             match_rate=5.0,  # $5,000 match
             after_tax_rate=0.0,
+            dob="1980-01-01",
+            hire_date="2010-01-01",
         ),
         # HCE 2 - Near limit
         Participant(
@@ -108,6 +110,8 @@ def test_census(db_connection):
             deferral_rate=11.5,  # $23,000
             match_rate=10.0,  # $20,000
             after_tax_rate=10.0,  # $20,000 -> Total $63,000
+            dob="1980-01-01",
+            hire_date="2010-01-01",
         ),
         # NHCE 1
         Participant(
@@ -119,6 +123,8 @@ def test_census(db_connection):
             deferral_rate=8.0,
             match_rate=4.0,
             after_tax_rate=0.0,
+            dob="1985-02-02",
+            hire_date="2012-06-01",
         ),
         # NHCE 2
         Participant(
@@ -130,6 +136,8 @@ def test_census(db_connection):
             deferral_rate=6.0,
             match_rate=3.0,
             after_tax_rate=1.0,
+            dob="1985-02-02",
+            hire_date="2012-06-01",
         ),
         # NHCE 3
         Participant(
@@ -141,6 +149,8 @@ def test_census(db_connection):
             deferral_rate=10.0,
             match_rate=5.0,
             after_tax_rate=0.5,
+            dob="1985-02-02",
+            hire_date="2012-06-01",
         ),
     ]
 

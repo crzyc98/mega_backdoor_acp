@@ -11,6 +11,11 @@ import random
 from typing import TYPE_CHECKING
 
 from app.services.constants import get_415c_limit
+from app.services.acp_eligibility import (
+    ACPInclusionError,
+    determine_acp_inclusion,
+    plan_year_bounds,
+)
 from app.services.models import (
     ConstraintStatus,
     EmployeeImpact,
@@ -73,18 +78,41 @@ class EmployeeImpactService:
             raise ValueError(f"Census {census_id} not found")
 
         participants = self.participant_repo.get_by_census(census_id)
+        plan_year_start, plan_year_end = plan_year_bounds(census.plan_year)
 
-        # 2. Get §415(c) limit for this plan year
+        # 2. Apply permissive disaggregation - filter by ACP eligibility
+        includable_participants: list["Participant"] = []
+        excluded_count = 0
+        for participant in participants:
+            try:
+                inclusion = determine_acp_inclusion(
+                    dob=participant.dob,
+                    hire_date=participant.hire_date,
+                    termination_date=participant.termination_date,
+                    plan_year_start=plan_year_start,
+                    plan_year_end=plan_year_end,
+                )
+                if inclusion.acp_includable:
+                    includable_participants.append(participant)
+                else:
+                    excluded_count += 1
+            except ACPInclusionError:
+                # If DOB/hire_date missing, include participant (fail open)
+                # This preserves backwards compatibility with census data
+                # that doesn't have eligibility fields
+                includable_participants.append(participant)
+
+        # 3. Get §415(c) limit for this plan year
         limit_415c = get_415c_limit(census.plan_year)
 
-        # 3. Separate HCEs and NHCEs
-        hces = [p for p in participants if p.is_hce]
-        nhces = [p for p in participants if not p.is_hce]
+        # 4. Separate HCEs and NHCEs from includable participants
+        hces = [p for p in includable_participants if p.is_hce]
+        nhces = [p for p in includable_participants if not p.is_hce]
 
-        # 4. Select HCEs for mega-backdoor participation (reproduce with seed)
+        # 5. Select HCEs for mega-backdoor participation (reproduce with seed)
         selected_ids = self._select_hces(hces, adoption_rate, seed)
 
-        # 5. Compute impact for each participant
+        # 6. Compute impact for each participant
         hce_impacts = [
             self._compute_employee_impact(
                 p, limit_415c, contribution_rate, p.internal_id in selected_ids
@@ -98,7 +126,7 @@ class EmployeeImpactService:
             for p in nhces
         ]
 
-        # 6. Compute summaries
+        # 7. Compute summaries
         hce_summary = self._compute_summary(hce_impacts, "HCE")
         nhce_summary = self._compute_summary(nhce_impacts, "NHCE")
 
@@ -109,6 +137,7 @@ class EmployeeImpactService:
             seed_used=seed,
             plan_year=census.plan_year,
             section_415c_limit=limit_415c,
+            excluded_count=excluded_count,
             hce_employees=hce_impacts,
             nhce_employees=nhce_impacts,
             hce_summary=hce_summary,

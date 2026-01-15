@@ -664,6 +664,7 @@ class EmployeeImpactViewResponse(BaseModel):
     seed_used: int
     plan_year: int
     section_415c_limit: int
+    excluded_count: int
     hce_employees: list[EmployeeImpactResponse]
     nhce_employees: list[EmployeeImpactResponse]
     hce_summary: EmployeeImpactSummaryResponse

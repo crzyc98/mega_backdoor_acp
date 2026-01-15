@@ -712,6 +712,9 @@ class EmployeeImpactViewResponse(BaseModel):
     seed_used: int
     plan_year: int
     section_415c_limit: int
+    excluded_count: int = Field(
+        0, ge=0, description="Number of participants excluded via permissive disaggregation"
+    )
     hce_employees: list[EmployeeImpactResponse]
     nhce_employees: list[EmployeeImpactResponse]
     hce_summary: EmployeeImpactSummaryResponse

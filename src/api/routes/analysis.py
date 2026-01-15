@@ -634,12 +634,18 @@ async def get_employee_impact(
 
     # Compute employee impact
     service = EmployeeImpactService(participant_repo, census_repo)
-    result = service.compute_impact(
-        census_id=census_id,
-        adoption_rate=impact_request.adoption_rate,
-        contribution_rate=impact_request.contribution_rate,
-        seed=impact_request.seed,
-    )
+    try:
+        result = service.compute_impact(
+            census_id=census_id,
+            adoption_rate=impact_request.adoption_rate,
+            contribution_rate=impact_request.contribution_rate,
+            seed=impact_request.seed,
+        )
+    except ACPInclusionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
 
     # Convert to API response format
     return EmployeeImpactViewResponse(
@@ -649,6 +655,7 @@ async def get_employee_impact(
         seed_used=result.seed_used,
         plan_year=result.plan_year,
         section_415c_limit=result.section_415c_limit,
+        excluded_count=result.excluded_count,
         hce_employees=[
             EmployeeImpactResponse(
                 employee_id=e.employee_id,
