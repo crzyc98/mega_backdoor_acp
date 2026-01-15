@@ -23,6 +23,11 @@ from app.models.run import Run, RunCreate, RunListResponse, RunStatus
 from app.services.census_parser import CensusValidationError, process_census_bytes
 from app.services.scenario_runner import run_grid_scenarios_v2
 from app.services.models import ScenarioResult as ScenarioResultModel, ScenarioStatus
+from app.services.acp_eligibility import (
+    ACPInclusionError,
+    determine_acp_inclusion,
+    plan_year_bounds,
+)
 from app.storage.workspace_storage import get_workspace_storage
 
 router = APIRouter(prefix="/api/workspaces", tags=["Workspaces"])
@@ -249,6 +254,14 @@ def create_run(workspace_id: UUID, data: RunCreate) -> Run:
     # Generate seed if not provided
     seed = data.seed if data.seed else random.randint(1, 999999)
 
+    # Get census summary for plan year
+    census_summary = storage.get_census_summary(workspace_id)
+    if not census_summary:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "no_census", "message": "Census summary not found"},
+        )
+
     # Create run record
     run = Run(
         id=uuid4(),
@@ -266,13 +279,60 @@ def create_run(workspace_id: UUID, data: RunCreate) -> Run:
         census_df = pd.read_csv(census_path)
 
         # Convert to list of participant dicts
-        participants = census_df.to_dict("records")
+        all_participants = census_df.to_dict("records")
+
+        # Apply ACP eligibility filtering
+        plan_year_start, plan_year_end = plan_year_bounds(census_summary.plan_year)
+        participants = []
+        excluded_count = 0
+        terminated_before_entry_count = 0
+        not_eligible_during_year_count = 0
+
+        for p in all_participants:
+            try:
+                # Parse dates from census data
+                dob = pd.to_datetime(p.get("dob")).date() if p.get("dob") else None
+                hire_date = pd.to_datetime(p.get("hire_date")).date() if p.get("hire_date") else None
+                term_date = pd.to_datetime(p.get("termination_date")).date() if pd.notna(p.get("termination_date")) else None
+
+                if dob is None or hire_date is None:
+                    # If dates missing, include participant (fail open)
+                    participants.append(p)
+                    continue
+
+                inclusion = determine_acp_inclusion(
+                    dob=dob,
+                    hire_date=hire_date,
+                    termination_date=term_date,
+                    plan_year_start=plan_year_start,
+                    plan_year_end=plan_year_end,
+                )
+
+                if inclusion.acp_includable:
+                    participants.append(p)
+                else:
+                    excluded_count += 1
+                    reason = inclusion.acp_exclusion_reason
+                    if reason == "TERMINATED_BEFORE_ENTRY":
+                        terminated_before_entry_count += 1
+                    elif reason == "NOT_ELIGIBLE_DURING_YEAR":
+                        not_eligible_during_year_count += 1
+            except (ACPInclusionError, Exception):
+                # If eligibility check fails, include participant (fail open)
+                participants.append(p)
+
+        # Store exclusion info for results
+        exclusion_info = {
+            "total_excluded": excluded_count,
+            "terminated_before_entry_count": terminated_before_entry_count,
+            "not_eligible_during_year_count": not_eligible_during_year_count,
+        }
 
         # Convert rates from percentages to fractions (e.g., 20% -> 0.20)
         adoption_fractions = [r / 100.0 for r in data.adoption_rates]
         contribution_fractions = [r / 100.0 for r in data.contribution_rates]
 
-        # Run grid analysis
+        # Run grid analysis on includable participants only
         grid_result = run_grid_scenarios_v2(
             participants=participants,
             adoption_rates=adoption_fractions,
@@ -298,6 +358,8 @@ def create_run(workspace_id: UUID, data: RunCreate) -> Run:
                     "adoption_rate": s.adoption_rate,
                     "contribution_rate": s.contribution_rate,
                     "seed_used": s.seed_used,
+                    "excluded_count": excluded_count,
+                    "exclusion_breakdown": exclusion_info,
                 }
                 for s in grid_result.scenarios
             ],
@@ -307,6 +369,8 @@ def create_run(workspace_id: UUID, data: RunCreate) -> Run:
                 "fail_count": grid_result.summary.fail_count,
                 "error_count": grid_result.summary.error_count,
                 "total_count": grid_result.summary.total_count,
+                "excluded_count": excluded_count,
+                "exclusion_breakdown": exclusion_info,
             },
             "seed_used": grid_result.seed_used,
         }
@@ -480,9 +544,66 @@ def get_employee_impact(
 
     # Load participants
     census_df = pd.read_csv(census_path)
-    participants = census_df.to_dict("records")
+    all_participants = census_df.to_dict("records")
 
-    # Separate HCEs and NHCEs
+    # Apply ACP eligibility filtering
+    plan_year_start, plan_year_end = plan_year_bounds(plan_year)
+    participants = []
+    excluded_participants = []
+    terminated_before_entry_count = 0
+    not_eligible_during_year_count = 0
+
+    for p in all_participants:
+        try:
+            # Parse dates from census data
+            from datetime import datetime
+            dob = pd.to_datetime(p.get("dob")).date() if p.get("dob") else None
+            hire_date = pd.to_datetime(p.get("hire_date")).date() if p.get("hire_date") else None
+            term_date = pd.to_datetime(p.get("termination_date")).date() if pd.notna(p.get("termination_date")) else None
+
+            if dob is None or hire_date is None:
+                # If dates missing, include participant (fail open)
+                participants.append(p)
+                continue
+
+            inclusion = determine_acp_inclusion(
+                dob=dob,
+                hire_date=hire_date,
+                termination_date=term_date,
+                plan_year_start=plan_year_start,
+                plan_year_end=plan_year_end,
+            )
+
+            if inclusion.acp_includable:
+                participants.append(p)
+            else:
+                # Track exclusion
+                reason = inclusion.acp_exclusion_reason
+                if reason == "TERMINATED_BEFORE_ENTRY":
+                    terminated_before_entry_count += 1
+                elif reason == "NOT_ELIGIBLE_DURING_YEAR":
+                    not_eligible_during_year_count += 1
+
+                excluded_participants.append({
+                    "employee_id": p.get("internal_id", p.get("employee_id", "")),
+                    "is_hce": p.get("is_hce", False),
+                    "exclusion_reason": reason,
+                    "eligibility_date": inclusion.eligibility_date.isoformat() if inclusion.eligibility_date else None,
+                    "entry_date": inclusion.entry_date.isoformat() if inclusion.entry_date else None,
+                    "termination_date": term_date.isoformat() if term_date else None,
+                })
+        except (ACPInclusionError, Exception):
+            # If eligibility check fails, include participant (fail open)
+            participants.append(p)
+
+    excluded_count = len(excluded_participants)
+    exclusion_breakdown = {
+        "total_excluded": excluded_count,
+        "terminated_before_entry_count": terminated_before_entry_count,
+        "not_eligible_during_year_count": not_eligible_during_year_count,
+    }
+
+    # Separate HCEs and NHCEs from includable participants
     hces = [p for p in participants if p.get("is_hce", False)]
     nhces = [p for p in participants if not p.get("is_hce", False)]
 
@@ -641,6 +762,9 @@ def get_employee_impact(
         "seed_used": seed,
         "plan_year": plan_year,
         "section_415c_limit": limit_415c,
+        "excluded_count": excluded_count,
+        "exclusion_breakdown": exclusion_breakdown,
+        "excluded_participants": excluded_participants,
         "scenario": scenario_summary,
         "hce_employees": hce_impacts,
         "nhce_employees": nhce_impacts,
