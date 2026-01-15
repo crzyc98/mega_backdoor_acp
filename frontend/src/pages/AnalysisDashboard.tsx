@@ -14,15 +14,10 @@ import type { Run, ViewMode, ScenarioResult } from '../types'
 const DEFAULT_ADOPTION_RATES = [20, 40, 60, 80, 100]
 const DEFAULT_CONTRIBUTION_RATES = [2, 4, 6, 8, 10, 12]
 
-// Format rates array for display - handles both fractions and percentages
+// Format rates array for display (percent values)
 const formatRatesForDisplay = (rates: number[]): string => {
-  // Detect format: if max rate > 1, they're already percentages; otherwise fractions
-  const maxRate = Math.max(...rates)
-  const areFractions = maxRate <= 1
-
   return rates.map((r) => {
-    const pct = areFractions ? r * 100 : r
-    return pct.toFixed(0)
+    return r.toFixed(2).replace(/\.00$/, '')
   }).join(', ')
 }
 
@@ -87,7 +82,7 @@ export default function AnalysisDashboard() {
   }
 
   const parseRates = (text: string): number[] => {
-    // Parse user input as percentages (e.g., "20, 40, 60" -> [20, 40, 60])
+    // Parse user input as percentages (e.g., "1, 2.5, 10" -> [1, 2.5, 10])
     // API expects percentages and converts to fractions internally
     return text
       .split(',')
@@ -181,7 +176,7 @@ export default function AnalysisDashboard() {
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
               placeholder="20, 40, 60, 80, 100"
             />
-            <p className="mt-1 text-xs text-gray-400">Comma-separated percentages</p>
+            <p className="mt-1 text-xs text-gray-400">Comma-separated percentages (1 = 1%)</p>
           </div>
 
           <div>
@@ -202,7 +197,7 @@ export default function AnalysisDashboard() {
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
               placeholder="2, 4, 6, 8, 10, 12"
             />
-            <p className="mt-1 text-xs text-gray-400">Comma-separated percentages</p>
+            <p className="mt-1 text-xs text-gray-400">Comma-separated percentages (1 = 1%)</p>
           </div>
 
           <div>

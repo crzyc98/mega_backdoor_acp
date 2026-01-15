@@ -36,17 +36,17 @@ def client():
 @pytest.fixture
 def sample_csv_content() -> bytes:
     """Sample CSV census file with HCEs and NHCEs."""
-    return b"""Employee ID,HCE Status,Annual Compensation,Current Deferral Rate,Current Match Rate,Current After-Tax Rate
-E001,TRUE,180000,10,4,2
-E002,FALSE,75000,6,3,0
-E003,TRUE,200000,10,4,3
-E004,FALSE,65000,5,2.5,1
-E005,TRUE,150000,8,4,2
-E006,FALSE,80000,7,3,0
-E007,FALSE,70000,5,2,1
-E008,FALSE,60000,4,2,0
-E009,TRUE,220000,12,5,4
-E010,FALSE,55000,3,1.5,0
+    return b"""Employee ID,HCE Status,Date of Birth,Hire Date,Termination Date,Annual Compensation,Current Deferral Rate,Current Match Rate,Current After-Tax Rate
+E001,TRUE,1990-01-01,2010-01-01,,180000,10,4,2
+E002,FALSE,1990-01-01,2010-01-01,,75000,6,3,0
+E003,TRUE,1990-01-01,2010-01-01,,200000,10,4,3
+E004,FALSE,1990-01-01,2010-01-01,,65000,5,2.5,1
+E005,TRUE,1990-01-01,2010-01-01,,150000,8,4,2
+E006,FALSE,1990-01-01,2010-01-01,,80000,7,3,0
+E007,FALSE,1990-01-01,2010-01-01,,70000,5,2,1
+E008,FALSE,1990-01-01,2010-01-01,,60000,4,2,0
+E009,TRUE,1990-01-01,2010-01-01,,220000,12,5,4
+E010,FALSE,1990-01-01,2010-01-01,,55000,3,1.5,0
 """
 
 

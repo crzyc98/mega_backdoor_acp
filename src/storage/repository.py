@@ -10,7 +10,14 @@ import uuid
 from datetime import datetime
 from typing import Generator
 
+import pandas as pd
+
 from src.core.constants import SYSTEM_VERSION
+from src.core.acp_eligibility import (
+    ACPInclusionError,
+    determine_acp_inclusion,
+    plan_year_bounds,
+)
 from src.storage.models import (
     Census,
     Participant,
@@ -214,8 +221,9 @@ class ParticipantRepository:
         self.conn.executemany(
             """
             INSERT INTO participant (id, census_id, internal_id, is_hce,
-                                    compensation_cents, deferral_rate, match_rate, after_tax_rate)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                    compensation_cents, deferral_rate, match_rate, after_tax_rate,
+                                    dob, hire_date, termination_date)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -227,6 +235,9 @@ class ParticipantRepository:
                     p.deferral_rate,
                     p.match_rate,
                     p.after_tax_rate,
+                    p.dob,
+                    p.hire_date,
+                    p.termination_date,
                 )
                 for p in participants
             ],
@@ -260,8 +271,42 @@ class ParticipantRepository:
 
     def get_as_calculation_dicts(self, census_id: str) -> list[dict]:
         """Get participants as dictionaries ready for ACP calculation."""
+        census_row = self.conn.execute(
+            "SELECT plan_year FROM census WHERE id = ?",
+            (census_id,),
+        ).fetchone()
+        if census_row is None:
+            return []
+
+        plan_year_start, plan_year_end = plan_year_bounds(census_row["plan_year"])
+
         participants = self.get_by_census(census_id)
-        return [p.to_calculation_dict() for p in participants]
+        calculation_dicts: list[dict] = []
+
+        for participant in participants:
+            try:
+                inclusion = determine_acp_inclusion(
+                    dob=participant.dob,
+                    hire_date=participant.hire_date,
+                    termination_date=participant.termination_date,
+                    plan_year_start=plan_year_start,
+                    plan_year_end=plan_year_end,
+                )
+            except ACPInclusionError as exc:
+                raise ACPInclusionError(
+                    f"Participant {participant.internal_id}: {exc}"
+                ) from exc
+
+            participant_dict = participant.to_calculation_dict()
+            participant_dict["eligibility_date"] = inclusion.eligibility_date.isoformat()
+            participant_dict["entry_date"] = inclusion.entry_date.isoformat()
+            participant_dict["acp_includable"] = inclusion.acp_includable
+            participant_dict["acp_exclusion_reason"] = inclusion.acp_exclusion_reason
+
+            if inclusion.acp_includable:
+                calculation_dicts.append(participant_dict)
+
+        return calculation_dicts
 
     def list_participants(
         self,
@@ -558,6 +603,13 @@ def create_census_from_dataframe(
 
     participants = []
     for _, row in df.iterrows():
+        dob_value = row.get("dob") if "dob" in df.columns else None
+        hire_value = row.get("hire_date") if "hire_date" in df.columns else None
+        term_value = row.get("termination_date") if "termination_date" in df.columns else None
+        dob = None if pd.isna(dob_value) else str(dob_value)
+        hire_date = None if pd.isna(hire_value) else str(hire_value)
+        termination_date = None if pd.isna(term_value) else str(term_value)
+
         participant = Participant(
             id=str(uuid.uuid4()),
             census_id=census_id,
@@ -567,6 +619,9 @@ def create_census_from_dataframe(
             deferral_rate=float(row["deferral_rate"]),
             match_rate=float(row["match_rate"]),
             after_tax_rate=float(row["after_tax_rate"]),
+            dob=dob,
+            hire_date=hire_date,
+            termination_date=termination_date,
         )
         participants.append(participant)
 

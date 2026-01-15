@@ -41,6 +41,7 @@ from src.api.schemas import (
     EmployeeImpactExportRequest,
 )
 from src.core.constants import RATE_LIMIT, SYSTEM_VERSION
+from src.core.acp_eligibility import ACPInclusionError
 from src.core.scenario_runner import run_single_scenario, run_grid_scenarios, run_single_scenario_v2, run_grid_scenarios_v2
 from src.core.models import ScenarioStatus
 from src.storage.database import get_db
@@ -92,7 +93,13 @@ async def run_analysis(
 
     # Get participants for calculation
     participant_repo = ParticipantRepository(conn)
-    participants = participant_repo.get_as_calculation_dicts(census_id)
+    try:
+        participants = participant_repo.get_as_calculation_dicts(census_id)
+    except ACPInclusionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
 
     # Generate seed if not provided
     seed = scenario.seed if scenario.seed is not None else int(time.time() * 1000) % (2**31)
@@ -182,7 +189,13 @@ async def run_grid_analysis(
 
     # Get participants for calculation
     participant_repo = ParticipantRepository(conn)
-    participants = participant_repo.get_as_calculation_dicts(census_id)
+    try:
+        participants = participant_repo.get_as_calculation_dicts(census_id)
+    except ACPInclusionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
 
     # Generate seed if not provided
     seed = grid_request.seed if grid_request.seed is not None else int(time.time() * 1000) % (2**31)
@@ -369,12 +382,21 @@ async def run_scenario_v2(
             detail=f"Census {scenario.census_id} not found",
         )
 
-    # Get participants for calculation
-    participant_repo = ParticipantRepository(conn)
-    participants = participant_repo.get_as_calculation_dicts(scenario.census_id)
-
     # Generate seed if not provided
     seed = scenario.seed if scenario.seed is not None else int(time.time() * 1000) % (2**31)
+
+    # Get participants for calculation
+    participant_repo = ParticipantRepository(conn)
+    try:
+        participants = participant_repo.get_as_calculation_dicts(scenario.census_id)
+    except ACPInclusionError as exc:
+        return ScenarioResultV2(
+            status=ScenarioStatus.ERROR,
+            seed_used=seed,
+            adoption_rate=scenario.adoption_rate,
+            contribution_rate=scenario.contribution_rate,
+            error_message=str(exc),
+        )
 
     # Run the v2 scenario
     result = run_single_scenario_v2(
@@ -472,7 +494,13 @@ async def run_grid_v2(
 
     # Get participants for calculation
     participant_repo = ParticipantRepository(conn)
-    participants = participant_repo.get_as_calculation_dicts(grid_request.census_id)
+    try:
+        participants = participant_repo.get_as_calculation_dicts(grid_request.census_id)
+    except ACPInclusionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
 
     # Generate seed if not provided
     seed = grid_request.seed if grid_request.seed is not None else int(time.time() * 1000) % (2**31)

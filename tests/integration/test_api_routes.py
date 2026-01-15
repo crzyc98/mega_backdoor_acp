@@ -70,12 +70,12 @@ def client(reset_db):
 @pytest.fixture
 def sample_census_csv():
     """Sample census CSV content as bytes."""
-    return b"""Employee ID,HCE Status,Annual Compensation,Current Deferral Rate,Current Match Rate,Current After-Tax Rate
-EMP001,TRUE,250000,6.0,3.0,0.0
-EMP002,TRUE,180000,5.0,2.5,0.0
-EMP003,FALSE,75000,4.0,2.0,0.0
-EMP004,FALSE,65000,3.0,1.5,0.0
-EMP005,FALSE,55000,2.0,1.0,0.0
+    return b"""Employee ID,HCE Status,Date of Birth,Hire Date,Termination Date,Annual Compensation,Current Deferral Rate,Current Match Rate,Current After-Tax Rate
+EMP001,TRUE,1990-01-01,2010-01-01,,250000,6.0,3.0,0.0
+EMP002,TRUE,1990-01-01,2010-01-01,,180000,5.0,2.5,0.0
+EMP003,FALSE,1990-01-01,2010-01-01,,75000,4.0,2.0,0.0
+EMP004,FALSE,1990-01-01,2010-01-01,,65000,3.0,1.5,0.0
+EMP005,FALSE,1990-01-01,2010-01-01,,55000,2.0,1.0,0.0
 """
 
 

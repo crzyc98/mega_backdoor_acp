@@ -206,6 +206,7 @@ def extend_participant_table(conn) -> None:
     - ssn_hash: Hashed SSN for duplicate detection
     - dob: Date of birth
     - hire_date: Hire date
+    - termination_date: Termination date (if any)
     - employee_pre_tax_cents: Employee pre-tax contribution amount
     - employee_after_tax_cents: Employee after-tax contribution amount
     - employee_roth_cents: Employee Roth contribution amount
@@ -215,6 +216,7 @@ def extend_participant_table(conn) -> None:
     _add_column_if_not_exists(conn, "participant", "ssn_hash", "TEXT")
     _add_column_if_not_exists(conn, "participant", "dob", "TEXT")
     _add_column_if_not_exists(conn, "participant", "hire_date", "TEXT")
+    _add_column_if_not_exists(conn, "participant", "termination_date", "TEXT")
     _add_column_if_not_exists(conn, "participant", "employee_pre_tax_cents", "INTEGER", "0")
     _add_column_if_not_exists(conn, "participant", "employee_after_tax_cents", "INTEGER", "0")
     _add_column_if_not_exists(conn, "participant", "employee_roth_cents", "INTEGER", "0")

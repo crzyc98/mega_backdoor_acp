@@ -43,6 +43,8 @@ export default function Heatmap({
     [contributionRates]
   )
 
+  const formatRateLabel = (value: number): string => `${value.toFixed(1)}%`
+
   const getScenario = (adoptionRate: number, contributionRate: number): ScenarioResult | undefined => {
     // Try direct lookup first
     let scenario = scenarioMap.get(`${adoptionRate}-${contributionRate}`)
@@ -75,7 +77,7 @@ export default function Heatmap({
               </th>
               {sortedAdoptionRates.map((rate) => (
                 <th key={rate} className="p-2 text-xs text-gray-600 text-center whitespace-nowrap">
-                  {formatPercentage(rate)}
+                  {formatRateLabel(rate)}
                 </th>
               ))}
             </tr>
@@ -84,7 +86,7 @@ export default function Heatmap({
             {sortedContributionRates.map((contribRate) => (
               <tr key={contribRate}>
                 <td className="p-2 text-xs text-gray-600 text-right whitespace-nowrap">
-                  {formatPercentage(contribRate)}
+                  {formatRateLabel(contribRate)}
                 </td>
                 {sortedAdoptionRates.map((adoptRate) => {
                   const scenario = getScenario(adoptRate, contribRate)

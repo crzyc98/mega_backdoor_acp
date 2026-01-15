@@ -23,6 +23,9 @@ class CensusValidationError(Exception):
 TARGET_FIELDS = {
     "employee_id": "Employee ID",
     "is_hce": "HCE Status",
+    "dob": "Date of Birth",
+    "hire_date": "Hire Date",
+    "termination_date": "Termination Date",
     "compensation": "Annual Compensation",
     "deferral_rate": "Current Deferral Rate",
     "match_rate": "Current Match Rate",
@@ -36,7 +39,7 @@ REQUIRED_FIELDS = ["employee_id", "compensation", "deferral_rate"]
 EXPLICIT_HCE_REQUIRED = ["is_hce"]
 
 # Optional fields
-OPTIONAL_FIELDS = ["match_rate", "after_tax_rate"]
+OPTIONAL_FIELDS = ["dob", "hire_date", "termination_date", "match_rate", "after_tax_rate"]
 
 # Default column mapping (for backwards compatibility)
 REQUIRED_COLUMNS = {
@@ -55,8 +58,6 @@ PII_PATTERNS = [
     "first name", "last name", "full name",
     # SSN
     "ssn", "social_security", "tax_id", "social security", "taxid",
-    # Dates
-    "birth_date", "dob", "date_of_birth", "birthdate", "birth date",
     # Contact
     "email", "phone", "address", "city", "state", "zip", "zipcode",
     "street", "apt", "apartment",
@@ -138,6 +139,9 @@ def detect_column_mapping(
         "compensation": ["compensation", "salary", "annual compensation", "annual salary", "pay", "wages"],
         "deferral_rate": ["deferral rate", "deferral", "deferral_rate", "401k rate", "contribution rate"],
         "is_hce": ["hce", "hce status", "hce_status", "highly compensated", "is_hce"],
+        "dob": ["dob", "date of birth", "birth date", "birthdate", "birth_date", "date_of_birth"],
+        "hire_date": ["hire date", "hire_date", "hiredate", "date hired", "start date", "employment date"],
+        "termination_date": ["termination date", "termination_date", "term date", "term_date", "date terminated"],
         "match_rate": ["match rate", "match", "match_rate", "employer match"],
         "after_tax_rate": ["after tax", "after_tax", "after-tax", "after tax rate", "after_tax_rate"],
     }
