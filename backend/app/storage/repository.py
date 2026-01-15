@@ -12,6 +12,8 @@ import uuid
 from datetime import datetime
 from typing import Generator
 
+import pandas as pd
+
 from app.services.constants import SYSTEM_VERSION
 from app.storage.models import (
     Census,
@@ -216,8 +218,9 @@ class ParticipantRepository:
         self.conn.executemany(
             """
             INSERT INTO participant (id, census_id, internal_id, is_hce,
-                                    compensation_cents, deferral_rate, match_rate, after_tax_rate)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                    compensation_cents, deferral_rate, match_rate, after_tax_rate,
+                                    dob, hire_date, termination_date)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -229,6 +232,9 @@ class ParticipantRepository:
                     p.deferral_rate,
                     p.match_rate,
                     p.after_tax_rate,
+                    p.dob,
+                    p.hire_date,
+                    p.termination_date,
                 )
                 for p in participants
             ],
@@ -612,6 +618,16 @@ def create_census_from_dataframe(
 
     participants = []
     for _, row in df.iterrows():
+        # Extract date fields if present (may be None or NaN)
+        dob = row.get("dob") if "dob" in row.index else None
+        hire_date = row.get("hire_date") if "hire_date" in row.index else None
+        termination_date = row.get("termination_date") if "termination_date" in row.index else None
+
+        # Convert NaN to None for date fields
+        dob = None if pd.isna(dob) else str(dob)
+        hire_date = None if pd.isna(hire_date) else str(hire_date)
+        termination_date = None if pd.isna(termination_date) else str(termination_date)
+
         participant = Participant(
             id=str(uuid.uuid4()),
             census_id=census_id,
@@ -621,6 +637,9 @@ def create_census_from_dataframe(
             deferral_rate=float(row["deferral_rate"]),
             match_rate=float(row["match_rate"]),
             after_tax_rate=float(row["after_tax_rate"]),
+            dob=dob,
+            hire_date=hire_date,
+            termination_date=termination_date,
         )
         participants.append(participant)
 
