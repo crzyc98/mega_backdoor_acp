@@ -303,8 +303,8 @@ class ParticipantRepository:
             participant_dict["acp_includable"] = inclusion.acp_includable
             participant_dict["acp_exclusion_reason"] = inclusion.acp_exclusion_reason
 
-            if inclusion.acp_includable:
-                calculation_dicts.append(participant_dict)
+            # Return ALL participants - let service layer filter and track exclusions
+            calculation_dicts.append(participant_dict)
 
         return calculation_dicts
 

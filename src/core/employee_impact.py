@@ -15,6 +15,8 @@ from src.core.models import (
     EmployeeImpact,
     EmployeeImpactSummary,
     EmployeeImpactView,
+    ExclusionInfo,
+    ExcludedParticipant,
 )
 
 if TYPE_CHECKING:
@@ -74,8 +76,12 @@ class EmployeeImpactService:
         participants = self.participant_repo.get_by_census(census_id)
         plan_year_start, plan_year_end = plan_year_bounds(census.plan_year)
 
-        includable_participants = []
-        excluded_count = 0
+        # 2. Apply permissive disaggregation - filter by ACP eligibility
+        includable_participants: list["Participant"] = []
+        excluded_participants_list: list[ExcludedParticipant] = []
+        terminated_before_entry_count = 0
+        not_eligible_during_year_count = 0
+
         for participant in participants:
             inclusion = determine_acp_inclusion(
                 dob=participant.dob,
@@ -87,9 +93,33 @@ class EmployeeImpactService:
             if inclusion.acp_includable:
                 includable_participants.append(participant)
             else:
-                excluded_count += 1
+                # Track exclusion reason
+                reason = inclusion.acp_exclusion_reason
+                if reason == "TERMINATED_BEFORE_ENTRY":
+                    terminated_before_entry_count += 1
+                elif reason == "NOT_ELIGIBLE_DURING_YEAR":
+                    not_eligible_during_year_count += 1
 
-        # 2. Get §415(c) limit for this plan year
+                # Build excluded participant record
+                excluded_participants_list.append(
+                    ExcludedParticipant(
+                        employee_id=participant.employee_id or participant.internal_id,
+                        is_hce=participant.is_hce,
+                        exclusion_reason=reason,
+                        eligibility_date=inclusion.eligibility_date.isoformat() if inclusion.eligibility_date else None,
+                        entry_date=inclusion.entry_date.isoformat() if inclusion.entry_date else None,
+                        termination_date=participant.termination_date.isoformat() if participant.termination_date else None,
+                    )
+                )
+
+        excluded_count = len(excluded_participants_list)
+        exclusion_breakdown = ExclusionInfo(
+            total_excluded=excluded_count,
+            terminated_before_entry_count=terminated_before_entry_count,
+            not_eligible_during_year_count=not_eligible_during_year_count,
+        )
+
+        # 3. Get §415(c) limit for this plan year
         limit_415c = get_415c_limit(census.plan_year)
 
         # 3. Separate HCEs and NHCEs
@@ -125,6 +155,8 @@ class EmployeeImpactService:
             plan_year=census.plan_year,
             section_415c_limit=limit_415c,
             excluded_count=excluded_count,
+            exclusion_breakdown=exclusion_breakdown,
+            excluded_participants=excluded_participants_list,
             hce_employees=hce_impacts,
             nhce_employees=nhce_impacts,
             hce_summary=hce_summary,

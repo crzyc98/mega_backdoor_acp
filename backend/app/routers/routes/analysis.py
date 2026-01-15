@@ -35,6 +35,9 @@ from app.routers.schemas import (
     DebugDetailsResponse,
     ParticipantContributionResponse,
     IntermediateValuesResponse,
+    # Exclusion info schemas
+    ExclusionInfoResponse,
+    ExcludedParticipantResponse,
     # T022: Employee impact schemas
     EmployeeImpactRequest,
     EmployeeImpactResponse,
@@ -422,6 +425,15 @@ async def run_scenario_v2(
             ),
         )
 
+    # Map exclusion breakdown to response schema
+    exclusion_response = None
+    if result.exclusion_breakdown:
+        exclusion_response = ExclusionInfoResponse(
+            total_excluded=result.exclusion_breakdown.total_excluded,
+            terminated_before_entry_count=result.exclusion_breakdown.terminated_before_entry_count,
+            not_eligible_during_year_count=result.exclusion_breakdown.not_eligible_during_year_count,
+        )
+
     return ScenarioResultV2(
         status=result.status.value,
         nhce_acp=result.nhce_acp,
@@ -443,6 +455,8 @@ async def run_scenario_v2(
         contribution_rate=result.contribution_rate,
         error_message=result.error_message,
         debug_details=debug_response,
+        excluded_count=result.excluded_count,
+        exclusion_breakdown=exclusion_response,
     )
 
 
@@ -531,6 +545,15 @@ async def run_grid_v2(
                 ),
             )
 
+        # Map exclusion breakdown for this scenario
+        scenario_exclusion_response = None
+        if scenario.exclusion_breakdown:
+            scenario_exclusion_response = ExclusionInfoResponse(
+                total_excluded=scenario.exclusion_breakdown.total_excluded,
+                terminated_before_entry_count=scenario.exclusion_breakdown.terminated_before_entry_count,
+                not_eligible_during_year_count=scenario.exclusion_breakdown.not_eligible_during_year_count,
+            )
+
         api_scenarios.append(ScenarioResultV2(
             status=scenario.status.value,
             nhce_acp=scenario.nhce_acp,
@@ -552,6 +575,8 @@ async def run_grid_v2(
             contribution_rate=scenario.contribution_rate,
             error_message=scenario.error_message,
             debug_details=debug_response,
+            excluded_count=scenario.excluded_count,
+            exclusion_breakdown=scenario_exclusion_response,
         ))
 
     # Convert summary to API response format
@@ -560,6 +585,15 @@ async def run_grid_v2(
         first_failure_response = FailurePointResponse(
             adoption_rate=result.summary.first_failure_point.adoption_rate,
             contribution_rate=result.summary.first_failure_point.contribution_rate,
+        )
+
+    # Map summary exclusion breakdown
+    summary_exclusion_response = None
+    if result.summary.exclusion_breakdown:
+        summary_exclusion_response = ExclusionInfoResponse(
+            total_excluded=result.summary.exclusion_breakdown.total_excluded,
+            terminated_before_entry_count=result.summary.exclusion_breakdown.terminated_before_entry_count,
+            not_eligible_during_year_count=result.summary.exclusion_breakdown.not_eligible_during_year_count,
         )
 
     return GridResultV2(
@@ -573,6 +607,8 @@ async def run_grid_v2(
             first_failure_point=first_failure_response,
             max_safe_contribution=result.summary.max_safe_contribution,
             worst_margin=result.summary.worst_margin,
+            excluded_count=result.summary.excluded_count,
+            exclusion_breakdown=summary_exclusion_response,
         ),
         seed_used=result.seed_used,
     )
@@ -627,6 +663,30 @@ async def get_employee_impact(
         seed=impact_request.seed,
     )
 
+    # Convert exclusion info to API response format
+    impact_exclusion_response = None
+    if result.exclusion_breakdown:
+        impact_exclusion_response = ExclusionInfoResponse(
+            total_excluded=result.exclusion_breakdown.total_excluded,
+            terminated_before_entry_count=result.exclusion_breakdown.terminated_before_entry_count,
+            not_eligible_during_year_count=result.exclusion_breakdown.not_eligible_during_year_count,
+        )
+
+    # Convert excluded participants to API response format
+    excluded_participants_response = None
+    if result.excluded_participants:
+        excluded_participants_response = [
+            ExcludedParticipantResponse(
+                employee_id=ep.employee_id,
+                is_hce=ep.is_hce,
+                exclusion_reason=ep.exclusion_reason,
+                eligibility_date=ep.eligibility_date,
+                entry_date=ep.entry_date,
+                termination_date=ep.termination_date,
+            )
+            for ep in result.excluded_participants
+        ]
+
     # Convert to API response format
     return EmployeeImpactViewResponse(
         census_id=result.census_id,
@@ -636,6 +696,8 @@ async def get_employee_impact(
         plan_year=result.plan_year,
         section_415c_limit=result.section_415c_limit,
         excluded_count=result.excluded_count,
+        exclusion_breakdown=impact_exclusion_response,
+        excluded_participants=excluded_participants_response,
         hce_employees=[
             EmployeeImpactResponse(
                 employee_id=e.employee_id,

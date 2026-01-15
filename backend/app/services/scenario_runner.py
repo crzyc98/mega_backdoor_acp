@@ -39,6 +39,7 @@ from app.services.models import (
     GridResult,
     GridSummary,
     FailurePoint,
+    ExclusionInfo,
 )
 
 
@@ -227,6 +228,32 @@ def run_single_scenario_v2(
             error_message=ERROR_EMPTY_CENSUS,
         )
 
+    # Filter out excluded participants and track exclusion reasons
+    includable_participants = []
+    terminated_before_entry_count = 0
+    not_eligible_during_year_count = 0
+
+    for p in participants:
+        # If acp_includable field is present and False, exclude the participant
+        if "acp_includable" in p and not p["acp_includable"]:
+            reason = p.get("acp_exclusion_reason")
+            if reason == "TERMINATED_BEFORE_ENTRY":
+                terminated_before_entry_count += 1
+            elif reason == "NOT_ELIGIBLE_DURING_YEAR":
+                not_eligible_during_year_count += 1
+        else:
+            includable_participants.append(p)
+
+    excluded_count = terminated_before_entry_count + not_eligible_during_year_count
+    exclusion_breakdown = ExclusionInfo(
+        total_excluded=excluded_count,
+        terminated_before_entry_count=terminated_before_entry_count,
+        not_eligible_during_year_count=not_eligible_during_year_count,
+    ) if excluded_count > 0 else None
+
+    # Use filtered participants for calculations
+    participants = includable_participants
+
     # Separate HCEs and NHCEs
     hces = [p for p in participants if p.get("is_hce", False)]
     nhces = [p for p in participants if not p.get("is_hce", False)]
@@ -381,6 +408,8 @@ def run_single_scenario_v2(
         adoption_rate=adoption_rate,
         contribution_rate=contribution_rate,
         debug_details=debug_details,
+        excluded_count=excluded_count if excluded_count > 0 else None,
+        exclusion_breakdown=exclusion_breakdown,
     )
 
     logger.info(
@@ -542,6 +571,14 @@ def compute_grid_summary(
     # Find worst margin (smallest margin value)
     worst_margin = find_worst_margin(scenarios)
 
+    # Get exclusion info from first scenario (same for all scenarios in grid)
+    excluded_count = 0
+    exclusion_breakdown = None
+    if scenarios:
+        first_scenario = scenarios[0]
+        excluded_count = first_scenario.excluded_count or 0
+        exclusion_breakdown = first_scenario.exclusion_breakdown
+
     return GridSummary(
         pass_count=pass_count,
         risk_count=risk_count,
@@ -550,7 +587,9 @@ def compute_grid_summary(
         total_count=total_count,
         first_failure_point=first_failure_point,
         max_safe_contribution=max_safe_contribution,
-        worst_margin=worst_margin
+        worst_margin=worst_margin,
+        excluded_count=excluded_count,
+        exclusion_breakdown=exclusion_breakdown,
     )
 
 

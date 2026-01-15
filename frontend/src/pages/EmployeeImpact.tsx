@@ -393,6 +393,16 @@ export default function EmployeeImpact() {
           <div className="bg-amber-50 rounded-lg p-4">
             <p className="text-sm text-amber-700 mb-1">Excluded Employees</p>
             <p className="text-2xl font-bold text-amber-800">{impactData.excluded_count}</p>
+            {impactData.exclusion_breakdown && impactData.excluded_count > 0 && (
+              <div className="text-xs text-amber-600 mt-1 space-y-0.5">
+                {impactData.exclusion_breakdown.terminated_before_entry_count > 0 && (
+                  <p>{impactData.exclusion_breakdown.terminated_before_entry_count} termed before entry</p>
+                )}
+                {impactData.exclusion_breakdown.not_eligible_during_year_count > 0 && (
+                  <p>{impactData.exclusion_breakdown.not_eligible_during_year_count} not eligible</p>
+                )}
+              </div>
+            )}
           </div>
           <div className="bg-green-50 rounded-lg p-4">
             <p className="text-sm text-green-600 mb-1">Total Mega Backdoor</p>

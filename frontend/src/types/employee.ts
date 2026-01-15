@@ -3,6 +3,22 @@
  */
 
 export type ConstraintStatus = 'Unconstrained' | 'At §415(c) Limit' | 'Reduced' | 'Not Selected'
+export type ExclusionReason = 'TERMINATED_BEFORE_ENTRY' | 'NOT_ELIGIBLE_DURING_YEAR'
+
+export interface ExclusionInfo {
+  total_excluded: number
+  terminated_before_entry_count: number
+  not_eligible_during_year_count: number
+}
+
+export interface ExcludedParticipant {
+  employee_id: string
+  is_hce: boolean
+  exclusion_reason: ExclusionReason
+  eligibility_date: string | null
+  entry_date: string | null
+  termination_date: string | null
+}
 
 export interface EmployeeImpact {
   employee_id: string
@@ -40,6 +56,8 @@ export interface EmployeeImpactView {
   plan_year: number
   section_415c_limit: number
   excluded_count: number
+  exclusion_breakdown?: ExclusionInfo | null
+  excluded_participants?: ExcludedParticipant[] | null
   scenario?: import('./analysis').ScenarioResult | null
   hce_employees: EmployeeImpact[]
   nhce_employees: EmployeeImpact[]

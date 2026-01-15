@@ -316,6 +316,10 @@ class ScenarioResultV2(BaseModel):
     contribution_rate: float
     error_message: str | None = None
     debug_details: DebugDetailsResponse | None = None
+    excluded_count: int | None = Field(None, ge=0, description="Participants excluded from ACP test")
+    exclusion_breakdown: ExclusionInfoResponse | None = Field(
+        None, description="Breakdown of exclusion reasons"
+    )
 
 
 class FailurePointResponse(BaseModel):
@@ -334,6 +338,10 @@ class GridSummaryV2(BaseModel):
     first_failure_point: FailurePointResponse | None = None
     max_safe_contribution: float | None = None
     worst_margin: float
+    excluded_count: int = Field(0, ge=0, description="Total participants excluded from ACP")
+    exclusion_breakdown: ExclusionInfoResponse | None = Field(
+        None, description="Breakdown of exclusion reasons"
+    )
 
 
 class GridRequestV2(BaseModel):
@@ -654,6 +662,34 @@ class ProfileApplyResult(BaseModel):
 
 
 # ============================================================================
+# Exclusion Info Schemas
+# ============================================================================
+
+
+class ExclusionInfoResponse(BaseModel):
+    """Breakdown of excluded participants by reason."""
+    total_excluded: int = Field(..., ge=0, description="Total excluded participants")
+    terminated_before_entry_count: int = Field(
+        ..., ge=0, description="Excluded: terminated before entry date"
+    )
+    not_eligible_during_year_count: int = Field(
+        ..., ge=0, description="Excluded: not eligible during plan year"
+    )
+
+
+class ExcludedParticipantResponse(BaseModel):
+    """Details of an excluded participant."""
+    employee_id: str = Field(..., description="Participant employee ID")
+    is_hce: bool = Field(..., description="Whether participant is HCE")
+    exclusion_reason: Literal["TERMINATED_BEFORE_ENTRY", "NOT_ELIGIBLE_DURING_YEAR"] = Field(
+        ..., description="Reason for exclusion"
+    )
+    eligibility_date: str | None = Field(None, description="Calculated eligibility date")
+    entry_date: str | None = Field(None, description="Calculated entry date")
+    termination_date: str | None = Field(None, description="Termination date if applicable")
+
+
+# ============================================================================
 # Employee Impact Schemas (Feature 006-employee-level-impact)
 # ============================================================================
 
@@ -714,6 +750,12 @@ class EmployeeImpactViewResponse(BaseModel):
     section_415c_limit: int
     excluded_count: int = Field(
         0, ge=0, description="Number of participants excluded via permissive disaggregation"
+    )
+    exclusion_breakdown: ExclusionInfoResponse | None = Field(
+        None, description="Breakdown of exclusion reasons"
+    )
+    excluded_participants: list[ExcludedParticipantResponse] | None = Field(
+        None, description="List of excluded participants for export/display"
     )
     hce_employees: list[EmployeeImpactResponse]
     nhce_employees: list[EmployeeImpactResponse]

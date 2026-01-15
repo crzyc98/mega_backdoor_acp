@@ -2,6 +2,8 @@
  * Analysis result type definitions.
  */
 
+import type { ExclusionInfo } from './employee'
+
 export type AnalysisStatus = 'PASS' | 'RISK' | 'FAIL' | 'ERROR'
 export type ViewMode = 'PASS_FAIL' | 'MARGIN' | 'RISK_ZONE'
 
@@ -20,6 +22,8 @@ export interface ScenarioResult {
   adoption_rate: number
   contribution_rate: number
   seed_used: number
+  excluded_count?: number | null
+  exclusion_breakdown?: ExclusionInfo | null
 }
 
 export interface GridSummary {
@@ -34,6 +38,8 @@ export interface GridSummary {
   }
   max_safe_contribution?: number
   worst_margin?: number
+  excluded_count?: number
+  exclusion_breakdown?: ExclusionInfo | null
 }
 
 export interface GridResult {
