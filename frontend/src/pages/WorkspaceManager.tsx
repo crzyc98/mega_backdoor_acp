@@ -29,8 +29,13 @@ export default function WorkspaceManager() {
   const fetchWorkspaces = useCallback(async () => {
     try {
       const response = await workspaceService.list()
-      setWorkspaces(response.items)
-      setError(null)
+      const items = Array.isArray(response.items) ? response.items : []
+      if (!Array.isArray(response.items)) {
+        setError('Unexpected response while loading workspaces.')
+      } else {
+        setError(null)
+      }
+      setWorkspaces(items)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load workspaces')
     } finally {
