@@ -1,0 +1,91 @@
+# Export API Contract
+# Feature: 015-pdf-export-counts-fix
+#
+# This documents the existing API contracts. No changes to endpoints or response schemas.
+# The fix affects the VALUES returned in exports, not the API structure.
+
+openapi: 3.0.3
+info:
+  title: ACP Analyzer Export API
+  version: 1.0.0
+  description: Legacy export endpoints for PDF and CSV generation
+
+paths:
+  /export/{census_id}/csv:
+    get:
+      summary: Export analysis results as CSV
+      description: |
+        Generates a CSV file with analysis results and metadata header.
+
+        **Behavior Change (015-pdf-export-counts-fix)**:
+        - Header now shows post-eligibility filter counts (Eligible HCEs, Eligible NHCEs, Excluded)
+        - Previously showed raw census counts (HCEs, NHCEs) without exclusion info
+      parameters:
+        - name: census_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: grid_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: Optional grid ID to filter results
+      responses:
+        '200':
+          description: CSV file download
+          content:
+            text/csv:
+              schema:
+                type: string
+              example: |
+                # ACP Sensitivity Analysis Export
+                # Plan Year: 2024
+                # Total Participants: 100
+                # Eligible HCEs: 20
+                # Eligible NHCEs: 70
+                # Excluded: 10
+                adoption_rate,contribution_rate,nhce_acp,hce_acp,...
+        '404':
+          description: Census or grid not found
+
+  /export/{census_id}/pdf:
+    get:
+      summary: Export analysis results as PDF
+      description: |
+        Generates a PDF report with census summary and analysis results.
+
+        **Behavior Change (015-pdf-export-counts-fix)**:
+        - Census summary section shows post-eligibility filter counts
+        - Previously showed raw census counts with excluded_count=0
+        - HCE + NHCE + Excluded now equals Total Participants
+      parameters:
+        - name: census_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: grid_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: Optional grid ID to filter results
+      responses:
+        '200':
+          description: PDF file download
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Census or grid not found
+
+# Note: Workspace export routes are not modified by this fix
+# They already use post-exclusion counts from run results summary
