@@ -365,7 +365,7 @@ def generate_pdf_report(
     ]))
     elements.append(audit_table)
 
-    # Scenario compliance table (limit to first 10 results)
+    # Scenario compliance table (show all results)
     if results:
         elements.append(Spacer(1, 12))
         elements.append(Paragraph("Scenario Compliance Metrics", heading_style))
@@ -381,7 +381,7 @@ def generate_pdf_report(
             "Margin",
         ]
         compliance_rows = [compliance_header]
-        for r in results[:10]:
+        for r in display_results:
             _ensure_limit_fields(r)
             compliance_rows.append([
                 f"{r['adoption_rate']:.0f}",
@@ -405,11 +405,6 @@ def generate_pdf_report(
             ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, GRAY_LIGHT]),
         ]))
         elements.append(compliance_table)
-        if len(results) > 10:
-            elements.append(Paragraph(
-                f"<i>Note: Showing first 10 of {len(results)} compliance rows.</i>",
-                normal_style,
-            ))
 
     # Formula explanation
     elements.append(Spacer(1, 12))
