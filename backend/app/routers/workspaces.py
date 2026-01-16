@@ -975,17 +975,19 @@ def export_csv(workspace_id: UUID, run_id: UUID):
             detail={"error": "no_results", "message": "Run has no results"},
         )
 
-    # Get census summary for metadata
-    census_summary = storage.get_census_summary(workspace_id)
+    # Get census from DuckDB
+    conn = get_db(str(workspace_id))
+    census_repo = CensusRepository(conn)
+    census = census_repo.get_latest()
 
     # Build CSV content
     lines = []
     lines.append("# ACP Sensitivity Analysis Export")
     lines.append(f"# Workspace: {workspace.name}")
     lines.append(f"# Run Seed: {run.seed}")
-    if census_summary:
-        lines.append(f"# Plan Year: {census_summary.plan_year}")
-        lines.append(f"# Participants: {census_summary.participant_count} (HCE: {census_summary.hce_count}, NHCE: {census_summary.nhce_count})")
+    if census:
+        lines.append(f"# Plan Year: {census.plan_year}")
+        lines.append(f"# Participants: {census.participant_count} (HCE: {census.hce_count}, NHCE: {census.nhce_count})")
     lines.append(f"# Generated: {datetime.utcnow().isoformat()}Z")
     lines.append("#")
 
@@ -1069,45 +1071,30 @@ def export_pdf(workspace_id: UUID, run_id: UUID):
             detail={"error": "no_results", "message": "Run has no results"},
         )
 
-    # Get census summary for metadata
-    census_summary = storage.get_census_summary(workspace_id)
+    # Get census from DuckDB
+    conn = get_db(str(workspace_id))
+    census_repo = CensusRepository(conn)
+    census = census_repo.get_latest()
 
-    # If census_summary is None, try to count from census data file
-    participant_count = 0
-    hce_count = 0
-    nhce_count = 0
-    plan_year = 2024  # Default
-
-    if census_summary:
-        participant_count = census_summary.participant_count
-        hce_count = census_summary.hce_count
-        nhce_count = census_summary.nhce_count
-        plan_year = census_summary.plan_year
+    if census:
+        census_dict = {
+            "id": census.id,
+            "name": census.name,
+            "plan_year": census.plan_year,
+            "participant_count": census.participant_count,
+            "hce_count": census.hce_count,
+            "nhce_count": census.nhce_count,
+        }
     else:
-        # Fallback: read census CSV and count participants
-        census_path = storage.get_census_data_path(workspace_id)
-        if census_path and census_path.exists():
-            import pandas as pd
-            try:
-                df = pd.read_csv(census_path)
-                participant_count = len(df)
-                # Check for is_hce column (may be boolean or 0/1)
-                if 'is_hce' in df.columns:
-                    hce_count = int(df['is_hce'].sum())
-                    nhce_count = participant_count - hce_count
-                # Check for plan_year in workspace metadata or use default
-            except Exception:
-                pass  # Use defaults if CSV parsing fails
-
-    # Build census dict for export function
-    census_dict = {
-        "id": census_summary.id if census_summary else str(workspace_id),
-        "name": workspace.name,
-        "plan_year": plan_year,
-        "participant_count": participant_count,
-        "hce_count": hce_count,
-        "nhce_count": nhce_count,
-    }
+        # Fallback if no census in DuckDB
+        census_dict = {
+            "id": str(workspace_id),
+            "name": workspace.name,
+            "plan_year": 2024,
+            "participant_count": 0,
+            "hce_count": 0,
+            "nhce_count": 0,
+        }
 
     # Get excluded count from results summary
     summary = results.get("summary", {})
