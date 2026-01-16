@@ -2,7 +2,8 @@
 Census CSV Parser with PII Stripping.
 
 This module handles parsing of census CSV files, detecting and stripping PII columns,
-and validating the census data structure. Supports column mapping and HCE determination modes.
+and validating the census data structure. HCE status is always determined by
+compensation threshold based on plan year.
 """
 
 from __future__ import annotations
@@ -10,12 +11,25 @@ from __future__ import annotations
 import io
 import hashlib
 import secrets
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, TextIO
+from typing import TextIO
 
 import pandas as pd
 
-from app.services.hce_thresholds import get_threshold_for_year, HCEMode
+from app.services.hce_thresholds import get_threshold_for_year
+
+
+@dataclass
+class HCEDistributionError:
+    """Structured error for invalid HCE distribution."""
+    error: str
+    message: str
+    hce_count: int
+    nhce_count: int
+    threshold_used: int
+    plan_year: int
+    suggestion: str
 
 
 class CensusValidationError(Exception):
@@ -37,10 +51,8 @@ TARGET_FIELDS = {
 }
 
 # Required fields (must be present for import)
+# Note: is_hce is NOT required because HCE status is always calculated from compensation
 REQUIRED_FIELDS = ["employee_id", "compensation", "deferral_rate"]
-
-# Fields required only in explicit HCE mode
-EXPLICIT_HCE_REQUIRED = ["is_hce"]
 
 # Optional fields
 OPTIONAL_FIELDS = ["match_rate", "after_tax_rate", "dob", "hire_date", "termination_date"]
@@ -118,19 +130,18 @@ def detect_pii_columns(columns: list[str]) -> list[str]:
     return pii_columns
 
 
-def detect_column_mapping(
-    columns: list[str],
-    hce_mode: HCEMode = "explicit",
-) -> dict:
+def detect_column_mapping(columns: list[str]) -> dict:
     """
     Detect column mapping from CSV headers.
 
     Auto-detects which source columns map to required target fields
     based on common naming patterns.
 
+    Note: is_hce column is NOT required because HCE status is always
+    calculated from compensation threshold.
+
     Args:
         columns: List of column names from CSV
-        hce_mode: HCE determination mode (affects required fields)
 
     Returns:
         Dictionary with:
@@ -144,7 +155,6 @@ def detect_column_mapping(
         "employee_id": ["employee id", "emp id", "employee_id", "empid", "id", "employee"],
         "compensation": ["compensation", "salary", "annual compensation", "annual salary", "pay", "wages"],
         "deferral_rate": ["deferral rate", "deferral", "deferral_rate", "401k rate", "contribution rate"],
-        "is_hce": ["hce", "hce status", "hce_status", "highly compensated", "is_hce"],
         "match_rate": ["match rate", "match", "match_rate", "employer match"],
         "after_tax_rate": ["after tax", "after_tax", "after-tax", "after tax rate", "after_tax_rate"],
         "dob": ["date of birth", "dob", "birth date", "birthdate", "birth_date", "date_of_birth"],
@@ -173,10 +183,8 @@ def detect_column_mapping(
                 suggested_mapping[target_field] = col
                 break
 
-    # Determine required fields based on HCE mode
+    # Required fields (is_hce NOT required - calculated from compensation)
     required_fields = REQUIRED_FIELDS.copy()
-    if hce_mode == "explicit":
-        required_fields.extend(EXPLICIT_HCE_REQUIRED)
 
     # Find missing fields
     missing_fields = [f for f in required_fields if f not in suggested_mapping]
@@ -187,6 +195,61 @@ def detect_column_mapping(
         "required_fields": required_fields,
         "missing_fields": missing_fields,
     }
+
+
+def validate_hce_distribution(
+    df: pd.DataFrame,
+    plan_year: int,
+    threshold: int,
+) -> HCEDistributionError | None:
+    """
+    Validate that census has at least 1 HCE and 1 NHCE participant.
+
+    Args:
+        df: DataFrame with is_hce column populated
+        plan_year: Plan year used for threshold calculation
+        threshold: HCE compensation threshold applied
+
+    Returns:
+        HCEDistributionError if validation fails, None if valid
+    """
+    if "is_hce" not in df.columns:
+        return HCEDistributionError(
+            error="INVALID_HCE_DISTRIBUTION",
+            message="Census data missing HCE classification",
+            hce_count=0,
+            nhce_count=0,
+            threshold_used=threshold,
+            plan_year=plan_year,
+            suggestion="Internal error: HCE calculation was not performed.",
+        )
+
+    hce_count = int(df["is_hce"].sum())
+    nhce_count = int((~df["is_hce"]).sum())
+
+    if hce_count == 0:
+        return HCEDistributionError(
+            error="INVALID_HCE_DISTRIBUTION",
+            message="Census must contain both HCE and NHCE participants",
+            hce_count=hce_count,
+            nhce_count=nhce_count,
+            threshold_used=threshold,
+            plan_year=plan_year,
+            suggestion=f"Census contains no HCE participants. Verify compensation data is correct or check that some employees earn at or above the HCE threshold of ${threshold:,} for plan year {plan_year}.",
+        )
+
+    if nhce_count == 0:
+        return HCEDistributionError(
+            error="INVALID_HCE_DISTRIBUTION",
+            message="Census must contain both HCE and NHCE participants",
+            hce_count=hce_count,
+            nhce_count=nhce_count,
+            threshold_used=threshold,
+            plan_year=plan_year,
+            suggestion=f"Census contains no NHCE participants. All employees earn at or above the HCE threshold of ${threshold:,} for plan year {plan_year}. Verify compensation data is correct.",
+        )
+
+    return None
 
 
 def _drop_empty_rows(df: pd.DataFrame) -> pd.DataFrame:
@@ -354,30 +417,57 @@ def validate_census_data(df: pd.DataFrame) -> pd.DataFrame:
 def process_census_bytes(
     file_content: bytes,
     filename: str,
+    plan_year: int,
     census_salt: str | None = None,
-    hce_mode: HCEMode = "explicit",
-    plan_year: int | None = None,
     column_mapping: dict[str, str] | None = None,
-) -> tuple[pd.DataFrame, str, dict[str, str]]:
-    """Process census data from CSV or XLSX upload bytes."""
+) -> tuple[pd.DataFrame, str, dict[str, str], HCEDistributionError | None]:
+    """
+    Process census data from CSV or XLSX upload bytes.
+
+    HCE status is always calculated from compensation threshold for the plan year.
+
+    Args:
+        file_content: Raw bytes of the uploaded file
+        filename: Original filename (used to detect file type)
+        plan_year: Plan year for HCE threshold calculation (2024-2028)
+        census_salt: Optional salt for ID hashing
+        column_mapping: Optional custom column mapping
+
+    Returns:
+        Tuple of (processed DataFrame, census salt, column mapping used, HCE distribution error or None)
+    """
     df = _read_census_dataframe(file_content, filename)
     return process_census_dataframe(
         df,
-        census_salt=census_salt,
-        hce_mode=hce_mode,
         plan_year=plan_year,
+        census_salt=census_salt,
         column_mapping=column_mapping,
     )
 
 
 def process_census_dataframe(
     df: pd.DataFrame,
+    plan_year: int,
     census_salt: str | None = None,
-    hce_mode: HCEMode = "explicit",
-    plan_year: int | None = None,
     column_mapping: dict[str, str] | None = None,
-) -> tuple[pd.DataFrame, str, dict[str, str]]:
-    """Process census data from a pre-loaded DataFrame."""
+) -> tuple[pd.DataFrame, str, dict[str, str], HCEDistributionError | None]:
+    """
+    Process census data from a pre-loaded DataFrame.
+
+    HCE status is always calculated from compensation threshold for the plan year.
+
+    Args:
+        df: DataFrame with census data
+        plan_year: Plan year for HCE threshold calculation (2024-2028)
+        census_salt: Optional salt for ID hashing (generated if not provided)
+        column_mapping: Optional custom column mapping (target_field -> source_column)
+
+    Returns:
+        Tuple of (processed DataFrame, census salt, column mapping used, HCE distribution error or None)
+
+    Raises:
+        CensusValidationError: If parsing or validation fails
+    """
     # Generate salt if not provided
     if census_salt is None:
         census_salt = generate_census_salt()
@@ -386,15 +476,12 @@ def process_census_dataframe(
 
     # Get column mapping (auto-detect if not provided)
     if column_mapping is None:
-        detection = detect_column_mapping(list(df.columns), hce_mode)
+        detection = detect_column_mapping(list(df.columns))
         column_mapping = detection["suggested_mapping"]
         missing_fields = detection["missing_fields"]
     else:
         # Validate provided mapping has required fields
-        required_fields = REQUIRED_FIELDS.copy()
-        if hce_mode == "explicit":
-            required_fields.extend(EXPLICIT_HCE_REQUIRED)
-        missing_fields = [f for f in required_fields if f not in column_mapping]
+        missing_fields = [f for f in REQUIRED_FIELDS if f not in column_mapping]
 
     if missing_fields:
         raise CensusValidationError(
@@ -419,25 +506,15 @@ def process_census_dataframe(
         if field in df.columns:
             df[field] = _coerce_numeric(df[field]).fillna(0)
 
-    # Handle HCE determination based on mode
-    if hce_mode == "compensation_threshold":
-        if plan_year is None:
-            raise CensusValidationError(
-                "plan_year is required when using compensation_threshold mode"
-            )
-        threshold = get_threshold_for_year(plan_year)
-        df["is_hce"] = df["compensation"].apply(lambda x: x >= threshold if pd.notna(x) else False)
-    else:
-        # Explicit mode - normalize HCE status
-        if "is_hce" in df.columns:
-            df["is_hce"] = df["is_hce"].apply(_normalize_hce_status)
-        else:
-            raise CensusValidationError(
-                "HCE Status column is required in explicit mode"
-            )
+    # Always calculate HCE status from compensation threshold
+    threshold = get_threshold_for_year(plan_year)
+    df["is_hce"] = df["compensation"].apply(lambda x: x >= threshold if pd.notna(x) else False)
 
     # Validate data
     df = validate_census_data(df)
+
+    # Validate HCE distribution (must have at least 1 HCE and 1 NHCE)
+    hce_error = validate_hce_distribution(df, plan_year, threshold)
 
     # Generate internal IDs
     df["internal_id"] = df["employee_id"].apply(
@@ -451,28 +528,28 @@ def process_census_dataframe(
     df["match_cents"] = (df["compensation_cents"] * df["match_rate"] / 100).round().astype(int)
     df["after_tax_cents"] = (df["compensation_cents"] * df["after_tax_rate"] / 100).round().astype(int)
 
-    return df, census_salt, column_mapping
+    return df, census_salt, column_mapping, hce_error
 
 
 def process_census(
     file: TextIO,
+    plan_year: int,
     census_salt: str | None = None,
-    hce_mode: HCEMode = "explicit",
-    plan_year: int | None = None,
     column_mapping: dict[str, str] | None = None,
-) -> tuple[pd.DataFrame, str, dict[str, str]]:
+) -> tuple[pd.DataFrame, str, dict[str, str], HCEDistributionError | None]:
     """
     Complete census processing: parse, validate, and hash IDs.
 
+    HCE status is always calculated from compensation threshold for the plan year.
+
     Args:
         file: File-like object containing CSV data
+        plan_year: Plan year for HCE threshold calculation (2024-2028)
         census_salt: Optional salt for ID hashing (generated if not provided)
-        hce_mode: HCE determination mode ('explicit' or 'compensation_threshold')
-        plan_year: Plan year (required for compensation_threshold mode)
         column_mapping: Optional custom column mapping (target_field -> source_column)
 
     Returns:
-        Tuple of (processed DataFrame with internal IDs, census salt, column mapping used)
+        Tuple of (processed DataFrame with internal IDs, census salt, column mapping used, HCE distribution error or None)
 
     Raises:
         CensusValidationError: If parsing or validation fails
@@ -480,31 +557,7 @@ def process_census(
     df = pd.read_csv(file)
     return process_census_dataframe(
         df,
-        census_salt=census_salt,
-        hce_mode=hce_mode,
         plan_year=plan_year,
+        census_salt=census_salt,
         column_mapping=column_mapping,
     )
-
-
-def process_census_simple(
-    file: TextIO,
-    census_salt: str | None = None,
-) -> tuple[pd.DataFrame, str]:
-    """
-    Simple census processing (backwards compatible).
-
-    Uses explicit HCE mode with default column mapping.
-
-    Args:
-        file: File-like object containing CSV data
-        census_salt: Optional salt for ID hashing (generated if not provided)
-
-    Returns:
-        Tuple of (processed DataFrame with internal IDs, census salt)
-
-    Raises:
-        CensusValidationError: If parsing or validation fails
-    """
-    df, salt, _ = process_census(file, census_salt, hce_mode="explicit")
-    return df, salt

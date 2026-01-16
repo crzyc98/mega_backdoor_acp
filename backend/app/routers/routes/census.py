@@ -31,13 +31,13 @@ from app.routers.schemas import (
     CensusValidationErrorDetail,
     ColumnMappingDetection,
     Error,
-    HCEMode,
     ImportMetadataResponse,
     ParticipantListResponse,
     ParticipantResponse,
 )
 from app.services.census_parser import (
     CensusValidationError,
+    HCEDistributionError,
     detect_column_mapping,
     process_census_bytes,
 )
@@ -73,7 +73,6 @@ limiter = Limiter(key_func=get_remote_address)
 async def detect_column_mapping_endpoint(
     request: Request,
     file: Annotated[UploadFile, File(description="CSV file to analyze")],
-    hce_mode: Annotated[HCEMode, Form(description="HCE determination mode")] = "explicit",
 ) -> ColumnMappingDetection:
     """Detect column mappings from CSV headers."""
     import pandas as pd
@@ -89,7 +88,7 @@ async def detect_column_mapping_endpoint(
             detail=f"Failed to read CSV headers: {str(e)}",
         )
 
-    result = detect_column_mapping(columns, hce_mode)
+    result = detect_column_mapping(columns)
     return ColumnMappingDetection(**result)
 
 
@@ -102,7 +101,7 @@ async def detect_column_mapping_endpoint(
     description=(
         "Upload participant census data in CSV format. PII fields are automatically "
         "stripped and replaced with non-reversible internal identifiers. "
-        "Supports column mapping and HCE determination modes."
+        "Supports column mapping. HCE status is always calculated from compensation threshold."
     ),
     responses={
         400: {"model": CensusValidationErrorSchema, "description": "Invalid census data"},
@@ -116,15 +115,16 @@ async def upload_census(
     plan_year: Annotated[int, Form(ge=2020, le=2100, description="Plan year for analysis")],
     name: Annotated[str | None, Form(max_length=255, description="Name for the census")] = None,
     client_name: Annotated[str | None, Form(max_length=255, description="Client/organization name")] = None,
-    hce_mode: Annotated[HCEMode, Form(description="HCE determination method")] = "explicit",
     column_mapping: Annotated[str | None, Form(description="JSON string mapping target fields to source columns")] = None,
     workspace_id: str = Depends(get_workspace_id_from_header),
 ) -> Census:
     """
-    Upload census endpoint with column mapping and HCE mode support.
+    Upload census endpoint with column mapping support.
 
-    T014: Accept name, client_name, hce_mode, column_mapping parameters
-    T015: Use column mapping and HCE mode from request
+    HCE status is always calculated by comparing compensation to the IRS threshold for the plan year.
+
+    T014: Accept name, client_name, column_mapping parameters
+    T015: Use column mapping from request
     T016: Store ImportMetadata after successful import
     T017: Return extended census response with summary statistics
     """
@@ -151,14 +151,20 @@ async def upload_census(
 
     try:
         # Process census (parse, validate, hash IDs)
-        df, salt, used_column_mapping = process_census_bytes(
+        # HCE status is calculated from compensation threshold for plan_year
+        df, salt, used_column_mapping, hce_distribution_error = process_census_bytes(
             file_content=content,
             filename=source_filename,
-            census_salt=None,
-            hce_mode=hce_mode,
             plan_year=plan_year,
+            census_salt=None,
             column_mapping=parsed_column_mapping,
         )
+        # TODO: Return structured error if hce_distribution_error is not None
+        if hce_distribution_error:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=hce_distribution_error.message,
+            )
     except CensusValidationError as e:
         # T019: Return validation error with details
         raise HTTPException(
@@ -176,13 +182,14 @@ async def upload_census(
         name = source_filename.rsplit(".", 1)[0] if "." in source_filename else source_filename
 
     # T018: Create models with summary statistics
+    # Always use compensation_threshold mode
     census, participants = create_census_from_dataframe(
         df=df,
         name=name,
         plan_year=plan_year,
         salt=salt,
         client_name=client_name,
-        hce_mode=hce_mode,
+        hce_mode="compensation_threshold",
     )
 
     # Save to database

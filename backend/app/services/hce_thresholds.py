@@ -2,13 +2,11 @@
 HCE Compensation Thresholds.
 
 Historical IRS HCE compensation thresholds by plan year for ACP testing.
-These thresholds determine who qualifies as a Highly Compensated Employee (HCE)
-when using compensation-threshold mode.
+These thresholds determine who qualifies as a Highly Compensated Employee (HCE).
+HCE status is always calculated by comparing compensation to the threshold.
 """
 
 from __future__ import annotations
-
-from typing import Literal
 
 # Historical IRS HCE compensation thresholds by year
 # Source: IRS Notice published annually
@@ -19,7 +17,9 @@ HCE_THRESHOLDS: dict[int, int] = {
     2023: 150_000,
     2024: 155_000,
     2025: 160_000,
-    2026: 165_000,  # Projected
+    2026: 160_000,
+    2027: 160_000,
+    2028: 160_000,
 }
 
 # Earliest and latest years with known thresholds
@@ -72,7 +72,3 @@ def is_hce_by_compensation(compensation: float, year: int) -> bool:
     """
     threshold = get_threshold_for_year(year)
     return compensation >= threshold
-
-
-# Type alias for HCE determination mode
-HCEMode = Literal["explicit", "compensation_threshold"]
