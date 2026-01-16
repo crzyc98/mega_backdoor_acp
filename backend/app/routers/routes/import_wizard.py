@@ -1103,23 +1103,23 @@ async def execute_import(
                 processed_df["non_elective_cents"] = (non_elective_values * 100).round().astype(int)
 
                 # Calculate deferral_rate (pre_tax / compensation)
-                processed_df["deferral_rate"] = 0.0
-                mask = processed_df["compensation"] > 0
-                if mask.any():
-                    processed_df.loc[mask, "deferral_rate"] = (
-                        pre_tax_values.loc[mask] / processed_df.loc[mask, "compensation"]
-                    )
+                # Reset index on all value series to ensure alignment with processed_df
+                pre_tax_values = pre_tax_values.reset_index(drop=True)
+                match_values = match_values.reset_index(drop=True)
+                after_tax_values = after_tax_values.reset_index(drop=True)
 
-                # Calculate match_rate and after_tax_rate
+                processed_df["deferral_rate"] = 0.0
                 processed_df["match_rate"] = 0.0
                 processed_df["after_tax_rate"] = 0.0
+
+                # Use numpy arrays for direct calculation to avoid index issues
+                comp_array = processed_df["compensation"].values
+                mask = comp_array > 0
+
                 if mask.any():
-                    processed_df.loc[mask, "match_rate"] = (
-                        match_values.loc[mask] / processed_df.loc[mask, "compensation"]
-                    )
-                    processed_df.loc[mask, "after_tax_rate"] = (
-                        after_tax_values.loc[mask] / processed_df.loc[mask, "compensation"]
-                    )
+                    processed_df.loc[mask, "deferral_rate"] = pre_tax_values.values[mask] / comp_array[mask]
+                    processed_df.loc[mask, "match_rate"] = match_values.values[mask] / comp_array[mask]
+                    processed_df.loc[mask, "after_tax_rate"] = after_tax_values.values[mask] / comp_array[mask]
 
                 # Calculate statistics
                 participant_count = len(processed_df)
@@ -1207,6 +1207,12 @@ async def execute_import(
                         dob=parse_date_str(dob_str),
                         hire_date=parse_date_str(hire_str),
                         termination_date=parse_date_str(term_str),
+                        # Include contribution amounts
+                        employee_pre_tax_cents=int(row.get("pre_tax_cents", 0)),
+                        employee_after_tax_cents=int(row.get("after_tax_cents", 0)),
+                        employee_roth_cents=int(row.get("roth_cents", 0)),
+                        employer_match_cents=int(row.get("match_cents", 0)),
+                        employer_non_elective_cents=int(row.get("non_elective_cents", 0)),
                     )
                     participant_models.append(participant_model)
 

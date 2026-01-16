@@ -262,8 +262,10 @@ class ParticipantRepository:
             """
             INSERT INTO participant (id, census_id, internal_id, is_hce,
                                     compensation_cents, deferral_rate, match_rate, after_tax_rate,
-                                    dob, hire_date, termination_date)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    dob, hire_date, termination_date,
+                                    employee_pre_tax_cents, employee_after_tax_cents, employee_roth_cents,
+                                    employer_match_cents, employer_non_elective_cents)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -278,6 +280,11 @@ class ParticipantRepository:
                     p.dob,
                     p.hire_date,
                     p.termination_date,
+                    p.employee_pre_tax_cents,
+                    p.employee_after_tax_cents,
+                    p.employee_roth_cents,
+                    p.employer_match_cents,
+                    p.employer_non_elective_cents,
                 )
                 for p in participants
             ],

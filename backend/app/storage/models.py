@@ -124,6 +124,12 @@ class Participant:
     dob: date | None = None
     hire_date: date | None = None
     termination_date: date | None = None
+    # Contribution amounts in cents
+    employee_pre_tax_cents: int = 0
+    employee_after_tax_cents: int = 0
+    employee_roth_cents: int = 0
+    employer_match_cents: int = 0
+    employer_non_elective_cents: int = 0
 
     @property
     def match_cents(self) -> int:
@@ -149,6 +155,11 @@ class Participant:
             "dob": self.dob,  # DuckDB accepts date objects directly
             "hire_date": self.hire_date,
             "termination_date": self.termination_date,
+            "employee_pre_tax_cents": self.employee_pre_tax_cents,
+            "employee_after_tax_cents": self.employee_after_tax_cents,
+            "employee_roth_cents": self.employee_roth_cents,
+            "employer_match_cents": self.employer_match_cents,
+            "employer_non_elective_cents": self.employer_non_elective_cents,
         }
 
     def to_calculation_dict(self) -> dict:
@@ -182,6 +193,11 @@ class Participant:
             dob=_parse_date(row.get("dob")),
             hire_date=_parse_date(row.get("hire_date")),
             termination_date=_parse_date(row.get("termination_date")),
+            employee_pre_tax_cents=row.get("employee_pre_tax_cents", 0) or 0,
+            employee_after_tax_cents=row.get("employee_after_tax_cents", 0) or 0,
+            employee_roth_cents=row.get("employee_roth_cents", 0) or 0,
+            employer_match_cents=row.get("employer_match_cents", 0) or 0,
+            employer_non_elective_cents=row.get("employer_non_elective_cents", 0) or 0,
         )
 
 
