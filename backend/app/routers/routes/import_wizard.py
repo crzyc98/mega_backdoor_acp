@@ -1037,15 +1037,21 @@ async def execute_import(
                     )
                     return pd.to_numeric(cleaned, errors="coerce").fillna(0)
 
-                # Generate internal_id from SSN (hashed)
+                # Generate internal_id and ssn_hash from SSN
                 ssn_col = mapping.get("ssn")
                 if ssn_col and ssn_col in df.columns:
                     census_salt = str(uuid4())[:8]
+                    # internal_id is a short hash for display
                     processed_df["internal_id"] = df[ssn_col].fillna("").astype(str).apply(
                         lambda x: hashlib.sha256(f"{x}{census_salt}".encode()).hexdigest()[:16]
                     )
+                    # ssn_hash is full hash for duplicate detection
+                    processed_df["ssn_hash"] = df[ssn_col].fillna("").astype(str).apply(
+                        lambda x: hashlib.sha256(f"{x}{census_salt}".encode()).hexdigest() if x.strip() else None
+                    )
                 else:
                     processed_df["internal_id"] = [f"p{i}" for i in range(len(df))]
+                    processed_df["ssn_hash"] = [None] * len(df)
                     census_salt = str(uuid4())[:8]
 
                 # Map compensation (convert to cents)
@@ -1076,10 +1082,16 @@ async def execute_import(
                     # Parse HCE status from column (Y/N, True/False, 1/0, Yes/No)
                     hce_values = df[hce_col].fillna("").astype(str).str.strip().str.upper()
                     processed_df["is_hce"] = hce_values.isin(["Y", "YES", "TRUE", "1", "HCE"])
+                    print(f"DEBUG HCE: Using explicit column '{hce_col}'")
+                    print(f"DEBUG HCE: Unique values in column: {hce_values.unique().tolist()}")
+                    print(f"DEBUG HCE: HCE count = {processed_df['is_hce'].sum()}")
                 else:
                     # Fall back to compensation threshold
                     hce_threshold = 155000 if request.plan_year >= 2024 else 150000
                     processed_df["is_hce"] = processed_df["compensation"] >= hce_threshold
+                    print(f"DEBUG HCE: No hce_status column mapped, using compensation threshold ${hce_threshold:,}")
+                    print(f"DEBUG HCE: Compensation range: ${processed_df['compensation'].min():,.2f} - ${processed_df['compensation'].max():,.2f}")
+                    print(f"DEBUG HCE: HCE count (comp >= threshold) = {processed_df['is_hce'].sum()}")
 
                 # Map contribution columns (convert to cents)
                 pre_tax_col = mapping.get("employee_pre_tax")
@@ -1139,6 +1151,15 @@ async def execute_import(
 
                 # Get database connection for this workspace
                 db_conn = get_db(session.workspace_id)
+                census_repo = CensusRepository(db_conn)
+
+                # Check if census with same name exists and delete it (reload behavior)
+                existing_censuses, _ = census_repo.list()
+                for existing in existing_censuses:
+                    if existing.name == request.census_name:
+                        print(f"DEBUG: Deleting existing census '{existing.name}' (id={existing.id}) for reload")
+                        census_repo.delete(existing.id)
+                        break
 
                 # Create Census record in DuckDB
                 census_model = CensusModel(
@@ -1156,7 +1177,6 @@ async def execute_import(
                     salt=census_salt,
                     version="1.0.0",
                 )
-                census_repo = CensusRepository(db_conn)
                 census_repo.save(census_model)
 
                 # Create Participant records in DuckDB
@@ -1213,6 +1233,8 @@ async def execute_import(
                         employee_roth_cents=int(row.get("roth_cents", 0)),
                         employer_match_cents=int(row.get("match_cents", 0)),
                         employer_non_elective_cents=int(row.get("non_elective_cents", 0)),
+                        # SSN hash for duplicate detection
+                        ssn_hash=row.get("ssn_hash"),
                     )
                     participant_models.append(participant_model)
 

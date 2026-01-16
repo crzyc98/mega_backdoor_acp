@@ -264,8 +264,8 @@ class ParticipantRepository:
                                     compensation_cents, deferral_rate, match_rate, after_tax_rate,
                                     dob, hire_date, termination_date,
                                     employee_pre_tax_cents, employee_after_tax_cents, employee_roth_cents,
-                                    employer_match_cents, employer_non_elective_cents)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    employer_match_cents, employer_non_elective_cents, ssn_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -285,6 +285,7 @@ class ParticipantRepository:
                     p.employee_roth_cents,
                     p.employer_match_cents,
                     p.employer_non_elective_cents,
+                    p.ssn_hash,
                 )
                 for p in participants
             ],

@@ -130,6 +130,8 @@ class Participant:
     employee_roth_cents: int = 0
     employer_match_cents: int = 0
     employer_non_elective_cents: int = 0
+    # SSN hash for duplicate detection
+    ssn_hash: str | None = None
 
     @property
     def match_cents(self) -> int:
@@ -160,6 +162,7 @@ class Participant:
             "employee_roth_cents": self.employee_roth_cents,
             "employer_match_cents": self.employer_match_cents,
             "employer_non_elective_cents": self.employer_non_elective_cents,
+            "ssn_hash": self.ssn_hash,
         }
 
     def to_calculation_dict(self) -> dict:
@@ -198,6 +201,7 @@ class Participant:
             employee_roth_cents=row.get("employee_roth_cents", 0) or 0,
             employer_match_cents=row.get("employer_match_cents", 0) or 0,
             employer_non_elective_cents=row.get("employer_non_elective_cents", 0) or 0,
+            ssn_hash=row.get("ssn_hash"),
         )
 
 
