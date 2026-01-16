@@ -987,6 +987,12 @@ def export_csv(workspace_id: UUID, run_id: UUID):
     censuses, _ = census_repo.list(limit=1)
     census = censuses[0] if censuses else None
 
+    # Get post-exclusion counts from results summary
+    summary = results.get("summary", {})
+    excluded_count = summary.get("excluded_count", 0) or 0
+    included_hce_count = summary.get("included_hce_count", 0) or 0
+    included_nhce_count = summary.get("included_nhce_count", 0) or 0
+
     # Build CSV content
     lines = []
     lines.append("# ACP Sensitivity Analysis Export")
@@ -994,7 +1000,11 @@ def export_csv(workspace_id: UUID, run_id: UUID):
     lines.append(f"# Run Seed: {run.seed}")
     if census:
         lines.append(f"# Plan Year: {census.plan_year}")
-        lines.append(f"# Participants: {census.participant_count} (HCE: {census.hce_count}, NHCE: {census.nhce_count})")
+        lines.append(f"# Total Participants: {census.participant_count}")
+        lines.append(f"# Eligible HCEs: {included_hce_count}")
+        lines.append(f"# Eligible NHCEs: {included_nhce_count}")
+        if excluded_count > 0:
+            lines.append(f"# Excluded: {excluded_count}")
     lines.append(f"# Generated: {datetime.utcnow().isoformat()}Z")
     lines.append("#")
 
