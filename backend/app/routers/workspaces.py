@@ -375,6 +375,10 @@ def create_run(workspace_id: UUID, data: RunCreate) -> Run:
                 # If eligibility check fails, include participant (fail open)
                 participants.append(p)
 
+        # Count HCEs and NHCEs after exclusions
+        included_hce_count = sum(1 for p in participants if p.get("is_hce"))
+        included_nhce_count = len(participants) - included_hce_count
+
         # Store exclusion info for results
         exclusion_info = {
             "total_excluded": excluded_count,
@@ -456,6 +460,8 @@ def create_run(workspace_id: UUID, data: RunCreate) -> Run:
                 "error_count": grid_result.summary.error_count,
                 "total_count": grid_result.summary.total_count,
                 "excluded_count": excluded_count,
+                "included_hce_count": included_hce_count,
+                "included_nhce_count": included_nhce_count,
                 "exclusion_breakdown": exclusion_info,
             },
             "seed_used": grid_result.seed_used,
@@ -1078,14 +1084,21 @@ def export_pdf(workspace_id: UUID, run_id: UUID):
     censuses, _ = census_repo.list(limit=1)
     census = censuses[0] if censuses else None
 
+    # Get counts from results summary (post-exclusion counts)
+    summary = results.get("summary", {})
+    excluded_count = summary.get("excluded_count", 0) or 0
+    included_hce_count = summary.get("included_hce_count", 0) or 0
+    included_nhce_count = summary.get("included_nhce_count", 0) or 0
+
     if census:
+        # Use post-exclusion counts from results, total from census
         census_dict = {
             "id": census.id,
             "name": census.name,
             "plan_year": census.plan_year,
             "participant_count": census.participant_count,
-            "hce_count": census.hce_count,
-            "nhce_count": census.nhce_count,
+            "hce_count": included_hce_count,
+            "nhce_count": included_nhce_count,
         }
     else:
         # Fallback if no census in DuckDB
@@ -1094,13 +1107,9 @@ def export_pdf(workspace_id: UUID, run_id: UUID):
             "name": workspace.name,
             "plan_year": 2024,
             "participant_count": 0,
-            "hce_count": 0,
-            "nhce_count": 0,
+            "hce_count": included_hce_count,
+            "nhce_count": included_nhce_count,
         }
-
-    # Get excluded count from results summary
-    summary = results.get("summary", {})
-    excluded_count = summary.get("excluded_count", 0) or 0
 
     # Convert scenarios to format expected by export function
     export_results = []
