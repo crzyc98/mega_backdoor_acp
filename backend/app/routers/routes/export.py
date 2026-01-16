@@ -204,8 +204,8 @@ async def export_pdf(
                 "pass_rate": pass_count / len(results) * 100 if results else 0,
             }
 
-    # Generate PDF
-    pdf_content = generate_pdf_report(census_dict, results_dicts, grid_summary)
+    # Generate PDF (excluded_count not available in legacy route)
+    pdf_content = generate_pdf_report(census_dict, results_dicts, grid_summary, excluded_count=0)
 
     # Generate filename
     date_str = datetime.utcnow().strftime("%Y-%m-%d")

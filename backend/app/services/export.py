@@ -112,6 +112,7 @@ def generate_pdf_report(
     census: dict,
     results: list[dict],
     grid_summary: dict | None = None,
+    excluded_count: int = 0,
 ) -> bytes:
     """
     Generate PDF report for analysis results.
@@ -120,12 +121,14 @@ def generate_pdf_report(
         census: Census metadata dictionary
         results: List of analysis result dictionaries
         grid_summary: Optional grid analysis summary
+        excluded_count: Number of participants excluded from ACP test
 
     Returns:
         PDF file bytes
     """
     try:
         from reportlab.lib import colors
+        from reportlab.lib.colors import HexColor
         from reportlab.lib.pagesizes import letter
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
         from reportlab.lib.units import inch
@@ -139,6 +142,21 @@ def generate_pdf_report(
     except ImportError:
         raise ImportError("reportlab is required for PDF export. Install with: pip install reportlab")
 
+    # Define colors matching frontend theme
+    BLUE_PRIMARY = HexColor('#2563eb')      # blue-600
+    BLUE_LIGHT = HexColor('#dbeafe')        # blue-100
+    BLUE_DARK = HexColor('#1e40af')         # blue-800
+    GREEN_PRIMARY = HexColor('#22c55e')     # green-500
+    GREEN_LIGHT = HexColor('#dcfce7')       # green-100
+    RED_PRIMARY = HexColor('#ef4444')       # red-500
+    RED_LIGHT = HexColor('#fee2e2')         # red-100
+    PURPLE_LIGHT = HexColor('#f3e8ff')      # purple-100
+    PURPLE_TEXT = HexColor('#7e22ce')       # purple-700
+    AMBER_LIGHT = HexColor('#fef3c7')       # amber-100
+    AMBER_TEXT = HexColor('#b45309')        # amber-700
+    GRAY_LIGHT = HexColor('#f9fafb')        # gray-50
+    GRAY_MEDIUM = HexColor('#e5e7eb')       # gray-200
+
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer,
@@ -150,8 +168,21 @@ def generate_pdf_report(
     )
 
     styles = getSampleStyleSheet()
-    title_style = styles["Heading1"]
-    heading_style = styles["Heading2"]
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        textColor=BLUE_DARK,
+        fontSize=20,
+        spaceAfter=12,
+    )
+    heading_style = ParagraphStyle(
+        'CustomHeading',
+        parent=styles['Heading2'],
+        textColor=BLUE_PRIMARY,
+        fontSize=14,
+        spaceBefore=12,
+        spaceAfter=8,
+    )
     normal_style = styles["Normal"]
 
     elements = []
@@ -160,36 +191,86 @@ def generate_pdf_report(
     elements.append(Paragraph("ACP Sensitivity Analysis Report", title_style))
     elements.append(Spacer(1, 12))
 
-    # Census Summary
+    # Census Summary - styled like frontend stat boxes
     elements.append(Paragraph("Census Summary", heading_style))
-    census_data = [
-        ["Census Name:", census["name"]],
-        ["Plan Year:", str(census["plan_year"])],
-        ["Total Participants:", str(census["participant_count"])],
-        ["HCEs:", str(census["hce_count"])],
-        ["NHCEs:", str(census["nhce_count"])],
-    ]
-    census_table = Table(census_data, colWidths=[2 * inch, 4 * inch])
-    census_table.setStyle(TableStyle([
-        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-        ("ALIGN", (0, 0), (-1, -1), "LEFT"),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+
+    # Stats row with colored backgrounds
+    stats_data = [[
+        f"Plan Year\n{census['plan_year']}",
+        f"Total Participants\n{census['participant_count']:,}",
+        f"HCEs\n{census['hce_count']:,}",
+        f"NHCEs\n{census['nhce_count']:,}",
+    ]]
+    if excluded_count > 0:
+        stats_data[0].append(f"Excluded\n{excluded_count:,}")
+
+    col_count = len(stats_data[0])
+    col_width = 6.5 * inch / col_count
+    stats_table = Table(stats_data, colWidths=[col_width] * col_count, rowHeights=[0.7 * inch])
+    stats_table.setStyle(TableStyle([
+        # Plan Year - blue
+        ("BACKGROUND", (0, 0), (0, 0), BLUE_LIGHT),
+        ("TEXTCOLOR", (0, 0), (0, 0), BLUE_PRIMARY),
+        # Total Participants - blue
+        ("BACKGROUND", (1, 0), (1, 0), BLUE_LIGHT),
+        ("TEXTCOLOR", (1, 0), (1, 0), BLUE_PRIMARY),
+        # HCEs - purple
+        ("BACKGROUND", (2, 0), (2, 0), PURPLE_LIGHT),
+        ("TEXTCOLOR", (2, 0), (2, 0), PURPLE_TEXT),
+        # NHCEs - green
+        ("BACKGROUND", (3, 0), (3, 0), GREEN_LIGHT),
+        ("TEXTCOLOR", (3, 0), (3, 0), GREEN_PRIMARY),
+        # Excluded - amber (if present)
+        ("BACKGROUND", (4, 0), (4, 0), AMBER_LIGHT) if col_count > 4 else ("BACKGROUND", (0, 0), (0, 0), BLUE_LIGHT),
+        ("TEXTCOLOR", (4, 0), (4, 0), AMBER_TEXT) if col_count > 4 else ("TEXTCOLOR", (0, 0), (0, 0), BLUE_PRIMARY),
+        # Common styling
+        ("FONTNAME", (0, 0), (-1, -1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 11),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("BOX", (0, 0), (-1, -1), 0.5, GRAY_MEDIUM),
+        ("INNERGRID", (0, 0), (-1, -1), 0.5, GRAY_MEDIUM),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
     ]))
-    elements.append(census_table)
+    elements.append(stats_table)
+
+    # Census name as subtitle
+    elements.append(Spacer(1, 6))
+    elements.append(Paragraph(f"<i>Census: {census['name']}</i>", normal_style))
     elements.append(Spacer(1, 12))
 
     # Grid Summary (if applicable)
     if grid_summary:
         elements.append(Paragraph("Analysis Summary", heading_style))
-        summary_data = [
-            ["Total Scenarios:", str(grid_summary["total_scenarios"])],
-            ["Passed:", str(grid_summary["pass_count"])],
-            ["Failed:", str(grid_summary["fail_count"])],
-            ["Pass Rate:", f"{grid_summary['pass_rate']:.1f}%"],
-        ]
-        summary_table = Table(summary_data, colWidths=[2 * inch, 4 * inch])
+
+        pass_rate = grid_summary['pass_rate']
+        pass_color = GREEN_PRIMARY if pass_rate >= 80 else (AMBER_TEXT if pass_rate >= 50 else RED_PRIMARY)
+        pass_bg = GREEN_LIGHT if pass_rate >= 80 else (AMBER_LIGHT if pass_rate >= 50 else RED_LIGHT)
+
+        summary_data = [[
+            f"Total Scenarios\n{grid_summary['total_scenarios']:,}",
+            f"Passed\n{grid_summary['pass_count']:,}",
+            f"Failed\n{grid_summary['fail_count']:,}",
+            f"Pass Rate\n{pass_rate:.1f}%",
+        ]]
+        summary_table = Table(summary_data, colWidths=[1.625 * inch] * 4, rowHeights=[0.6 * inch])
         summary_table.setStyle(TableStyle([
-            ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+            ("BACKGROUND", (0, 0), (0, 0), GRAY_LIGHT),
+            ("BACKGROUND", (1, 0), (1, 0), GREEN_LIGHT),
+            ("TEXTCOLOR", (1, 0), (1, 0), GREEN_PRIMARY),
+            ("BACKGROUND", (2, 0), (2, 0), RED_LIGHT),
+            ("TEXTCOLOR", (2, 0), (2, 0), RED_PRIMARY),
+            ("BACKGROUND", (3, 0), (3, 0), pass_bg),
+            ("TEXTCOLOR", (3, 0), (3, 0), pass_color),
+            ("FONTNAME", (0, 0), (-1, -1), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 10),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("BOX", (0, 0), (-1, -1), 0.5, GRAY_MEDIUM),
+            ("INNERGRID", (0, 0), (-1, -1), 0.5, GRAY_MEDIUM),
         ]))
         elements.append(summary_table)
         elements.append(Spacer(1, 12))
@@ -228,27 +309,42 @@ def generate_pdf_report(
         table_data.append(row)
 
     results_table = Table(table_data, repeatRows=1)
-    results_table.setStyle(TableStyle([
-        # Header style
-        ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+
+    # Build style commands for results table
+    style_commands = [
+        # Header style - blue theme
+        ("BACKGROUND", (0, 0), (-1, 0), BLUE_PRIMARY),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
         ("FONTSIZE", (0, 0), (-1, 0), 9),
         ("ALIGN", (0, 0), (-1, 0), "CENTER"),
         # Data style
         ("FONTSIZE", (0, 1), (-1, -1), 8),
         ("ALIGN", (0, 1), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         # Grid
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("GRID", (0, 0), (-1, -1), 0.5, GRAY_MEDIUM),
         # Alternating row colors
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.lightgrey]),
-    ]))
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, GRAY_LIGHT]),
+    ]
+
+    # Add color coding for PASS/FAIL cells in the Result column (column 7)
+    for row_idx, r in enumerate(display_results, start=1):
+        result_val = r.get("result", "")
+        if result_val == "PASS":
+            style_commands.append(("BACKGROUND", (7, row_idx), (7, row_idx), GREEN_LIGHT))
+            style_commands.append(("TEXTCOLOR", (7, row_idx), (7, row_idx), GREEN_PRIMARY))
+        elif result_val == "FAIL":
+            style_commands.append(("BACKGROUND", (7, row_idx), (7, row_idx), RED_LIGHT))
+            style_commands.append(("TEXTCOLOR", (7, row_idx), (7, row_idx), RED_PRIMARY))
+
+    results_table.setStyle(TableStyle(style_commands))
     elements.append(results_table)
 
     if len(results) > 50:
         elements.append(Spacer(1, 6))
         elements.append(Paragraph(
-            f"Note: Showing first 50 of {len(results)} results. See CSV export for complete data.",
+            f"<i>Note: Showing first 50 of {len(results)} results. See CSV export for complete data.</i>",
             normal_style
         ))
 
@@ -265,6 +361,7 @@ def generate_pdf_report(
     audit_table.setStyle(TableStyle([
         ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
         ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("TEXTCOLOR", (0, 0), (0, -1), BLUE_PRIMARY),
     ]))
     elements.append(audit_table)
 
@@ -299,17 +396,18 @@ def generate_pdf_report(
             ])
         compliance_table = Table(compliance_rows, repeatRows=1)
         compliance_table.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+            ("BACKGROUND", (0, 0), (-1, 0), BLUE_PRIMARY),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
             ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
             ("FONTSIZE", (0, 0), (-1, 0), 8),
             ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+            ("GRID", (0, 0), (-1, -1), 0.5, GRAY_MEDIUM),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, GRAY_LIGHT]),
         ]))
         elements.append(compliance_table)
         if len(results) > 10:
             elements.append(Paragraph(
-                f"Note: Showing first 10 of {len(results)} compliance rows.",
+                f"<i>Note: Showing first 10 of {len(results)} compliance rows.</i>",
                 normal_style,
             ))
 

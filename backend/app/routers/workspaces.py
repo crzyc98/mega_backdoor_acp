@@ -1076,11 +1076,15 @@ def export_pdf(workspace_id: UUID, run_id: UUID):
     census_dict = {
         "id": census_summary.id if census_summary else str(workspace_id),
         "name": workspace.name,
-        "plan_year": census_summary.plan_year if census_summary else 2025,
+        "plan_year": census_summary.plan_year if census_summary else run.seed,  # Use seed as fallback hint
         "participant_count": census_summary.participant_count if census_summary else 0,
         "hce_count": census_summary.hce_count if census_summary else 0,
         "nhce_count": census_summary.nhce_count if census_summary else 0,
     }
+
+    # Get excluded count from results summary
+    summary = results.get("summary", {})
+    excluded_count = summary.get("excluded_count", 0) or 0
 
     # Convert scenarios to format expected by export function
     export_results = []
@@ -1128,7 +1132,7 @@ def export_pdf(workspace_id: UUID, run_id: UUID):
 
     try:
         from app.services.export import generate_pdf_report
-        pdf_bytes = generate_pdf_report(census_dict, export_results, grid_summary)
+        pdf_bytes = generate_pdf_report(census_dict, export_results, grid_summary, excluded_count)
     except ImportError as e:
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
