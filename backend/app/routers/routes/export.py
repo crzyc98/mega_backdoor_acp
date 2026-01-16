@@ -182,9 +182,12 @@ async def export_csv(
         excluded_count=excluded_count,
     )
 
-    # Generate filename
-    date_str = datetime.utcnow().strftime("%Y-%m-%d")
-    filename = f"acp_results_{date_str}.csv"
+    # Build descriptive filename: CensusName_PlanYear_Run#_MonthYear.csv
+    safe_name = "".join(c if c.isalnum() or c in " -_" else "" for c in census.name).strip()
+    safe_name = safe_name.replace(" ", "_")
+    export_date = datetime.utcnow().strftime("%b%Y")
+    seed_part = f"_Run{seed}" if seed else ""
+    filename = f"{safe_name}_{census.plan_year}{seed_part}_{export_date}.csv"
 
     return Response(
         content=csv_content,
@@ -264,12 +267,14 @@ async def export_pdf(
         for r in results
     ]
 
-    # Get grid summary if applicable
+    # Get grid summary and seed if applicable
     grid_summary = None
+    seed = None
     if grid_id:
         grid_repo = GridAnalysisRepository(conn)
         grid = grid_repo.get(grid_id)
         if grid:
+            seed = grid.seed
             pass_count = sum(1 for r in results if r.result == "PASS")
             grid_summary = {
                 "total_scenarios": len(results),
@@ -295,9 +300,12 @@ async def export_pdf(
         nhce_count=included_nhce_count,
     )
 
-    # Generate filename
-    date_str = datetime.utcnow().strftime("%Y-%m-%d")
-    filename = f"acp_report_{date_str}.pdf"
+    # Build descriptive filename: CensusName_PlanYear_Run#_MonthYear.pdf
+    safe_name = "".join(c if c.isalnum() or c in " -_" else "" for c in census.name).strip()
+    safe_name = safe_name.replace(" ", "_")
+    export_date = datetime.utcnow().strftime("%b%Y")
+    seed_part = f"_Run{seed}" if seed else ""
+    filename = f"{safe_name}_{census.plan_year}{seed_part}_{export_date}.pdf"
 
     return Response(
         content=pdf_content,
