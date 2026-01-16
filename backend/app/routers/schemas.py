@@ -12,12 +12,20 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
+# Type alias for HCE determination mode
+HCEMode = Literal["explicit", "compensation_threshold"]
+
+
 # Census Schemas
 class CensusCreate(BaseModel):
     """Request model for census creation (form data fields)."""
-    plan_year: int = Field(..., ge=2024, le=2028, description="Plan year for analysis (2024-2028). HCE status is determined by compensation threshold for this year.")
+    plan_year: int = Field(..., ge=2024, le=2028, description="Plan year for analysis (2024-2028)")
     name: str = Field(..., max_length=255, description="Name for the census")
     client_name: str | None = Field(None, max_length=255, description="Optional client/organization name")
+    hce_mode: HCEMode = Field(
+        default="compensation_threshold",
+        description="HCE determination mode: 'explicit' uses is_hce column (H/N values), 'compensation_threshold' calculates from compensation"
+    )
     column_mapping: str | None = Field(None, description="JSON string mapping source columns to target fields")
 
 
@@ -33,6 +41,7 @@ class CensusSummary(BaseModel):
     name: str
     client_name: str | None = None
     plan_year: int
+    hce_mode: HCEMode = "compensation_threshold"
     participant_count: int
     hce_count: int
     nhce_count: int

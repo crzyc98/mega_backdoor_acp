@@ -295,8 +295,8 @@ export default function AnalysisDashboard() {
 
           <Heatmap
             scenarios={selectedRun.results.scenarios}
-            adoptionRates={selectedRun.adoption_rates}
-            contributionRates={selectedRun.contribution_rates}
+            adoptionRates={adoptionRates}
+            contributionRates={contributionRates}
             viewMode={viewMode}
             onCellClick={handleCellClick}
           />
