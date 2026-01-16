@@ -290,8 +290,8 @@ def generate_pdf_report(
         "Result",
     ]
 
-    # Limit results for PDF (show first 50)
-    display_results = results[:50]
+    # Limit results for PDF (show first 100)
+    display_results = results[:100]
     table_data = [header]
 
     for r in display_results:
@@ -341,10 +341,10 @@ def generate_pdf_report(
     results_table.setStyle(TableStyle(style_commands))
     elements.append(results_table)
 
-    if len(results) > 50:
+    if len(results) > 100:
         elements.append(Spacer(1, 6))
         elements.append(Paragraph(
-            f"<i>Note: Showing first 50 of {len(results)} results. See CSV export for complete data.</i>",
+            f"<i>Note: Showing first 100 of {len(results)} results. See CSV export for complete data.</i>",
             normal_style
         ))
 
