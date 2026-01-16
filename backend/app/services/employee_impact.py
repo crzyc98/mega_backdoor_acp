@@ -110,7 +110,7 @@ class EmployeeImpactService:
                     # Build excluded participant record
                     excluded_participants_list.append(
                         ExcludedParticipant(
-                            employee_id=participant.employee_id or participant.internal_id,
+                            employee_id=participant.internal_id,
                             is_hce=participant.is_hce,
                             exclusion_reason=reason,
                             eligibility_date=inclusion.eligibility_date.isoformat() if inclusion.eligibility_date else None,

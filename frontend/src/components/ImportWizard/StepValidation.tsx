@@ -14,6 +14,7 @@ import type {
 } from '../../types/importWizard'
 
 interface StepValidationProps {
+  workspaceId: string
   sessionId: string
   validationResult: ValidationResult | null
   previewRows: PreviewRowList | null
@@ -62,6 +63,7 @@ function getStatusIcon(status: RowStatus) {
 }
 
 export default function StepValidation({
+  workspaceId,
   sessionId,
   validationResult,
   previewRows: initialPreviewRows,
@@ -84,7 +86,7 @@ export default function StepValidation({
 
     setLoadingMore(true)
     try {
-      const rows = await importWizardService.getPreviewRows(sessionId, {
+      const rows = await importWizardService.getPreviewRows(workspaceId, sessionId, {
         status: status === 'all' ? undefined : status,
         limit: 100,
       })
@@ -94,7 +96,7 @@ export default function StepValidation({
     } finally {
       setLoadingMore(false)
     }
-  }, [sessionId])
+  }, [workspaceId, sessionId])
 
   // Check if import can proceed
   const canProceed = summary ? summary.error_count === 0 : false

@@ -29,6 +29,8 @@ from app.services.acp_eligibility import (
     plan_year_bounds,
 )
 from app.storage.workspace_storage import get_workspace_storage
+from app.storage.database import get_db
+from app.storage.repository import CensusRepository
 
 router = APIRouter(prefix="/api/workspaces", tags=["Workspaces"])
 
@@ -182,14 +184,39 @@ def get_census(workspace_id: UUID) -> CensusSummary:
             detail={"error": "not_found", "message": f"Workspace {workspace_id} not found"},
         )
 
-    summary = storage.get_census_summary(workspace_id)
-    if not summary:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"error": "no_census", "message": "No census data uploaded for this workspace"},
-        )
+    # Query DuckDB for the most recent census in this workspace
+    try:
+        conn = get_db(str(workspace_id))
+        census_repo = CensusRepository(conn)
+        censuses, total = census_repo.list(limit=1)  # Get most recent
 
-    return summary
+        if not censuses or total == 0:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error": "no_census", "message": "No census data uploaded for this workspace"},
+            )
+
+        census = censuses[0]
+        return CensusSummary(
+            id=census.id,
+            plan_year=census.plan_year,
+            participant_count=census.participant_count,
+            hce_count=census.hce_count,
+            nhce_count=census.nhce_count,
+            avg_compensation=census.avg_compensation_cents / 100.0 if census.avg_compensation_cents else None,
+            upload_timestamp=census.upload_timestamp,
+        )
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions
+    except Exception:
+        # Fall back to workspace storage for backwards compatibility
+        summary = storage.get_census_summary(workspace_id)
+        if not summary:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error": "no_census", "message": "No census data uploaded for this workspace"},
+            )
+        return summary
 
 
 # --- Run Endpoints ---
@@ -220,6 +247,7 @@ def list_runs(workspace_id: UUID) -> RunListResponse:
 def create_run(workspace_id: UUID, data: RunCreate) -> Run:
     """Execute a new grid analysis run."""
     import random
+    from app.storage.repository import ParticipantRepository
 
     storage = get_workspace_storage()
 
@@ -231,12 +259,23 @@ def create_run(workspace_id: UUID, data: RunCreate) -> Run:
             detail={"error": "not_found", "message": f"Workspace {workspace_id} not found"},
         )
 
-    # Check census exists
-    census_path = storage.get_census_data_path(workspace_id)
-    if not census_path:
+    # Check census exists in DuckDB
+    try:
+        conn = get_db(str(workspace_id))
+        census_repo = CensusRepository(conn)
+        censuses, total = census_repo.list(limit=1)
+        if not censuses or total == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "no_census", "message": "No census data uploaded. Please upload census first."},
+            )
+        census = censuses[0]
+    except HTTPException:
+        raise
+    except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "no_census", "message": "No census data uploaded. Please upload census first."},
+            detail={"error": "no_census", "message": f"Failed to load census: {str(e)}"},
         )
 
     # Validate rate arrays
@@ -254,13 +293,16 @@ def create_run(workspace_id: UUID, data: RunCreate) -> Run:
     # Generate seed if not provided
     seed = data.seed if data.seed else random.randint(1, 999999)
 
-    # Get census summary for plan year
-    census_summary = storage.get_census_summary(workspace_id)
-    if not census_summary:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "no_census", "message": "Census summary not found"},
-        )
+    # Create census summary from DuckDB census
+    census_summary = CensusSummary(
+        id=census.id,
+        plan_year=census.plan_year,
+        participant_count=census.participant_count,
+        hce_count=census.hce_count,
+        nhce_count=census.nhce_count,
+        avg_compensation=census.avg_compensation_cents / 100.0 if census.avg_compensation_cents else None,
+        upload_timestamp=census.upload_timestamp,
+    )
 
     # Create run record
     run = Run(
@@ -275,11 +317,12 @@ def create_run(workspace_id: UUID, data: RunCreate) -> Run:
     storage.create_run(workspace_id, run)
 
     try:
-        # Load census data
-        census_df = pd.read_csv(census_path)
+        # Load participants from DuckDB
+        participant_repo = ParticipantRepository(conn)
+        db_participants = participant_repo.get_by_census(census.id)
 
-        # Convert to list of participant dicts
-        all_participants = census_df.to_dict("records")
+        # Convert to list of dicts for processing
+        all_participants = [p.to_calculation_dict() for p in db_participants]
 
         # Apply ACP eligibility filtering
         plan_year_start, plan_year_end = plan_year_bounds(census_summary.plan_year)
@@ -290,10 +333,19 @@ def create_run(workspace_id: UUID, data: RunCreate) -> Run:
 
         for p in all_participants:
             try:
-                # Parse dates from census data
-                dob = pd.to_datetime(p.get("dob")).date() if p.get("dob") else None
-                hire_date = pd.to_datetime(p.get("hire_date")).date() if p.get("hire_date") else None
-                term_date = pd.to_datetime(p.get("termination_date")).date() if pd.notna(p.get("termination_date")) else None
+                # Get dates - already date objects from DuckDB to_calculation_dict()
+                from datetime import date as date_type
+                dob = p.get("dob")
+                hire_date = p.get("hire_date")
+                term_date = p.get("termination_date")
+
+                # Ensure they are date objects (handle string fallback for backwards compatibility)
+                if dob and not isinstance(dob, date_type):
+                    dob = pd.to_datetime(dob).date()
+                if hire_date and not isinstance(hire_date, date_type):
+                    hire_date = pd.to_datetime(hire_date).date()
+                if term_date and not isinstance(term_date, date_type):
+                    term_date = pd.to_datetime(term_date).date()
 
                 if dob is None or hire_date is None:
                     # If dates missing, include participant (fail open)
@@ -523,28 +575,45 @@ def get_employee_impact(
             detail={"error": "invalid_rate", "message": f"Contribution rate {contribution_rate} not in run's rate array"},
         )
 
-    # Load census data
-    census_path = storage.get_census_data_path(workspace_id)
-    if not census_path:
+    # Load census from DuckDB
+    from app.storage.repository import ParticipantRepository
+
+    try:
+        conn = get_db(str(workspace_id))
+        census_repo = CensusRepository(conn)
+        censuses, total = census_repo.list(limit=1)
+        if not censuses or total == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "no_census", "message": "No census data found"},
+            )
+        census = censuses[0]
+    except HTTPException:
+        raise
+    except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "no_census", "message": "No census data found"},
+            detail={"error": "no_census", "message": f"Failed to load census: {str(e)}"},
         )
 
-    # Get census summary for plan year
-    census_summary = storage.get_census_summary(workspace_id)
-    if not census_summary:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "no_census", "message": "No census summary found"},
-        )
-
-    plan_year = census_summary.plan_year
+    plan_year = census.plan_year
     limit_415c = get_415c_limit(plan_year)
 
-    # Load participants
-    census_df = pd.read_csv(census_path)
-    all_participants = census_df.to_dict("records")
+    # Load participants from DuckDB
+    participant_repo = ParticipantRepository(conn)
+    db_participants = participant_repo.get_by_census(census.id)
+    all_participants = [p.to_calculation_dict() for p in db_participants]
+
+    # Build census_summary for response
+    census_summary = CensusSummary(
+        id=census.id,
+        plan_year=census.plan_year,
+        participant_count=census.participant_count,
+        hce_count=census.hce_count,
+        nhce_count=census.nhce_count,
+        avg_compensation=census.avg_compensation_cents / 100.0 if census.avg_compensation_cents else None,
+        upload_timestamp=census.upload_timestamp,
+    )
 
     # Apply ACP eligibility filtering
     plan_year_start, plan_year_end = plan_year_bounds(plan_year)
@@ -555,11 +624,19 @@ def get_employee_impact(
 
     for p in all_participants:
         try:
-            # Parse dates from census data
-            from datetime import datetime
-            dob = pd.to_datetime(p.get("dob")).date() if p.get("dob") else None
-            hire_date = pd.to_datetime(p.get("hire_date")).date() if p.get("hire_date") else None
-            term_date = pd.to_datetime(p.get("termination_date")).date() if pd.notna(p.get("termination_date")) else None
+            # Get dates - already date objects from DuckDB to_calculation_dict()
+            from datetime import date as date_type
+            dob = p.get("dob")
+            hire_date = p.get("hire_date")
+            term_date = p.get("termination_date")
+
+            # Ensure they are date objects (handle string fallback for backwards compatibility)
+            if dob and not isinstance(dob, date_type):
+                dob = pd.to_datetime(dob).date()
+            if hire_date and not isinstance(hire_date, date_type):
+                hire_date = pd.to_datetime(hire_date).date()
+            if term_date and not isinstance(term_date, date_type):
+                term_date = pd.to_datetime(term_date).date()
 
             if dob is None or hire_date is None:
                 # If dates missing, include participant (fail open)

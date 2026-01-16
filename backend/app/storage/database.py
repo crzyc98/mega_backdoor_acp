@@ -1,93 +1,186 @@
 """
-SQLite Database Connection and Schema Management.
+DuckDB Database Connection and Schema Management.
 
-This module provides database connectivity with WAL mode for concurrent reads
-and schema initialization for the ACP Sensitivity Analyzer.
+This module provides workspace-isolated database connectivity using DuckDB
+for the ACP Sensitivity Analyzer. Each workspace has its own database file.
 """
 
 from __future__ import annotations
 
-import sqlite3
+import duckdb
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator
 
-from app.services.constants import DATABASE_PATH
+from app.services.constants import WORKSPACE_BASE_DIR, WORKSPACE_DB_FILENAME
 
-# SQL Schema Definition per data-model.md
+# Current schema version for migrations
+SCHEMA_VERSION = 1
+
+# DuckDB Schema Definition
+# Note: DuckDB enforces foreign keys by default, no PRAGMA needed
+# Note: DuckDB does NOT support ON DELETE CASCADE/SET NULL - delete dependent records manually
+# Tables must be created in dependency order
 SCHEMA_SQL = """
--- Enable WAL mode for concurrent reads
-PRAGMA journal_mode=WAL;
+-- Schema version tracking for migrations
+CREATE TABLE IF NOT EXISTS schema_version (
+    version INTEGER PRIMARY KEY,
+    applied_at TIMESTAMP DEFAULT current_timestamp,
+    description VARCHAR NOT NULL
+);
 
 -- Census table: Collection of participant records for a plan
 CREATE TABLE IF NOT EXISTS census (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    client_name TEXT,
+    id VARCHAR PRIMARY KEY,
+    name VARCHAR NOT NULL,
+    client_name VARCHAR,
     plan_year INTEGER NOT NULL CHECK (plan_year BETWEEN 2020 AND 2100),
-    hce_mode TEXT NOT NULL DEFAULT 'explicit' CHECK (hce_mode IN ('explicit', 'compensation_threshold')),
-    upload_timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+    hce_mode VARCHAR NOT NULL DEFAULT 'explicit' CHECK (hce_mode IN ('explicit', 'compensation_threshold')),
+    upload_timestamp TIMESTAMP NOT NULL DEFAULT current_timestamp,
     participant_count INTEGER NOT NULL CHECK (participant_count >= 0),
     hce_count INTEGER NOT NULL CHECK (hce_count >= 0),
     nhce_count INTEGER NOT NULL CHECK (nhce_count >= 0),
-    avg_compensation_cents INTEGER,
-    avg_deferral_rate REAL,
-    salt TEXT NOT NULL,
-    version TEXT NOT NULL,
+    avg_compensation_cents BIGINT,
+    avg_deferral_rate DOUBLE,
+    salt VARCHAR NOT NULL,
+    version VARCHAR NOT NULL,
     CHECK (hce_count + nhce_count = participant_count)
 );
 
 -- Participant table: Individual plan participants with ACP-relevant attributes
 CREATE TABLE IF NOT EXISTS participant (
-    id TEXT PRIMARY KEY,
-    census_id TEXT NOT NULL REFERENCES census(id) ON DELETE CASCADE,
-    internal_id TEXT NOT NULL,
-    is_hce INTEGER NOT NULL CHECK (is_hce IN (0, 1)),
-    compensation_cents INTEGER NOT NULL CHECK (compensation_cents > 0),
-    deferral_rate REAL NOT NULL CHECK (deferral_rate BETWEEN 0 AND 100),
-    match_rate REAL NOT NULL CHECK (match_rate >= 0),
-    after_tax_rate REAL NOT NULL CHECK (after_tax_rate >= 0),
+    id VARCHAR PRIMARY KEY,
+    census_id VARCHAR NOT NULL REFERENCES census(id),
+    internal_id VARCHAR NOT NULL,
+    is_hce BOOLEAN NOT NULL,
+    compensation_cents BIGINT NOT NULL CHECK (compensation_cents > 0),
+    deferral_rate DOUBLE NOT NULL CHECK (deferral_rate BETWEEN 0 AND 100),
+    match_rate DOUBLE NOT NULL CHECK (match_rate >= 0),
+    after_tax_rate DOUBLE NOT NULL CHECK (after_tax_rate >= 0),
+    ssn_hash VARCHAR,
+    dob DATE,
+    hire_date DATE,
+    termination_date DATE,
+    employee_pre_tax_cents BIGINT DEFAULT 0,
+    employee_after_tax_cents BIGINT DEFAULT 0,
+    employee_roth_cents BIGINT DEFAULT 0,
+    employer_match_cents BIGINT DEFAULT 0,
+    employer_non_elective_cents BIGINT DEFAULT 0,
     UNIQUE (census_id, internal_id)
 );
 
 -- Grid analysis table: Collection of analysis results across multiple scenarios
 CREATE TABLE IF NOT EXISTS grid_analysis (
-    id TEXT PRIMARY KEY,
-    census_id TEXT NOT NULL REFERENCES census(id) ON DELETE CASCADE,
-    name TEXT,
-    created_timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+    id VARCHAR PRIMARY KEY,
+    census_id VARCHAR NOT NULL REFERENCES census(id),
+    name VARCHAR,
+    created_timestamp TIMESTAMP NOT NULL DEFAULT current_timestamp,
     seed INTEGER NOT NULL,
-    adoption_rates TEXT NOT NULL,  -- JSON array
-    contribution_rates TEXT NOT NULL,  -- JSON array
-    version TEXT NOT NULL
+    adoption_rates VARCHAR NOT NULL,
+    contribution_rates VARCHAR NOT NULL,
+    version VARCHAR NOT NULL
 );
 
 -- Analysis result table: Outcome of running one scenario against a census
 CREATE TABLE IF NOT EXISTS analysis_result (
-    id TEXT PRIMARY KEY,
-    census_id TEXT NOT NULL REFERENCES census(id) ON DELETE CASCADE,
-    grid_analysis_id TEXT REFERENCES grid_analysis(id) ON DELETE CASCADE,
-    adoption_rate REAL NOT NULL CHECK (adoption_rate BETWEEN 0 AND 100),
-    contribution_rate REAL NOT NULL CHECK (contribution_rate BETWEEN 0 AND 15),
+    id VARCHAR PRIMARY KEY,
+    census_id VARCHAR NOT NULL REFERENCES census(id),
+    grid_analysis_id VARCHAR REFERENCES grid_analysis(id),
+    adoption_rate DOUBLE NOT NULL CHECK (adoption_rate BETWEEN 0 AND 100),
+    contribution_rate DOUBLE NOT NULL CHECK (contribution_rate BETWEEN 0 AND 15),
     seed INTEGER NOT NULL,
-    nhce_acp REAL NOT NULL,
-    hce_acp REAL NOT NULL,
-    threshold REAL NOT NULL,
-    margin REAL NOT NULL,
-    result TEXT NOT NULL CHECK (result IN ('PASS', 'FAIL')),
-    limiting_test TEXT NOT NULL CHECK (limiting_test IN ('1.25x', '+2.0')),
-    run_timestamp TEXT NOT NULL DEFAULT (datetime('now')),
-    version TEXT NOT NULL
+    nhce_acp DOUBLE NOT NULL,
+    hce_acp DOUBLE NOT NULL,
+    threshold DOUBLE NOT NULL,
+    margin DOUBLE NOT NULL,
+    result VARCHAR NOT NULL CHECK (result IN ('PASS', 'FAIL')),
+    limiting_test VARCHAR NOT NULL CHECK (limiting_test IN ('1.25x', '+2.0')),
+    run_timestamp TIMESTAMP NOT NULL DEFAULT current_timestamp,
+    version VARCHAR NOT NULL
 );
 
 -- Import metadata table: Stores column mapping and import details for each census
 CREATE TABLE IF NOT EXISTS import_metadata (
-    id TEXT PRIMARY KEY,
-    census_id TEXT NOT NULL UNIQUE REFERENCES census(id) ON DELETE CASCADE,
-    source_filename TEXT NOT NULL,
-    column_mapping TEXT NOT NULL,  -- JSON object
+    id VARCHAR PRIMARY KEY,
+    census_id VARCHAR NOT NULL UNIQUE REFERENCES census(id),
+    source_filename VARCHAR NOT NULL,
+    column_mapping VARCHAR NOT NULL,
     row_count INTEGER NOT NULL CHECK (row_count >= 0),
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TIMESTAMP NOT NULL DEFAULT current_timestamp
+);
+
+-- Import logs with indefinite retention (created before import_session due to FK)
+CREATE TABLE IF NOT EXISTS import_log (
+    id VARCHAR PRIMARY KEY,
+    session_id VARCHAR,
+    census_id VARCHAR REFERENCES census(id),
+    created_at TIMESTAMP NOT NULL DEFAULT current_timestamp,
+    completed_at TIMESTAMP,
+    original_filename VARCHAR NOT NULL,
+    total_rows INTEGER NOT NULL,
+    imported_count INTEGER NOT NULL DEFAULT 0,
+    rejected_count INTEGER NOT NULL DEFAULT 0,
+    warning_count INTEGER NOT NULL DEFAULT 0,
+    replaced_count INTEGER NOT NULL DEFAULT 0,
+    skipped_count INTEGER NOT NULL DEFAULT 0,
+    column_mapping_used VARCHAR NOT NULL,
+    detailed_results VARCHAR,
+    deleted_at TIMESTAMP
+);
+
+-- Import wizard session state
+CREATE TABLE IF NOT EXISTS import_session (
+    id VARCHAR PRIMARY KEY,
+    user_id VARCHAR,
+    workspace_id VARCHAR,
+    created_at TIMESTAMP NOT NULL DEFAULT current_timestamp,
+    updated_at TIMESTAMP NOT NULL DEFAULT current_timestamp,
+    expires_at TIMESTAMP NOT NULL,
+    current_step VARCHAR NOT NULL DEFAULT 'upload'
+        CHECK (current_step IN ('upload', 'map', 'validate', 'preview', 'confirm', 'completed')),
+    file_reference VARCHAR,
+    original_filename VARCHAR,
+    file_size_bytes BIGINT,
+    row_count INTEGER,
+    headers VARCHAR,
+    column_mapping VARCHAR,
+    validation_results VARCHAR,
+    duplicate_resolution VARCHAR,
+    date_format VARCHAR,
+    import_result_id VARCHAR REFERENCES import_log(id)
+);
+
+-- Saved column mapping profiles
+CREATE TABLE IF NOT EXISTS mapping_profile (
+    id VARCHAR PRIMARY KEY,
+    user_id VARCHAR,
+    workspace_id VARCHAR,
+    name VARCHAR NOT NULL,
+    description VARCHAR,
+    created_at TIMESTAMP NOT NULL DEFAULT current_timestamp,
+    updated_at TIMESTAMP NOT NULL DEFAULT current_timestamp,
+    column_mapping VARCHAR NOT NULL,
+    expected_headers VARCHAR,
+    date_format VARCHAR,
+    is_default BOOLEAN DEFAULT FALSE,
+    UNIQUE (user_id, name)
+);
+
+-- Validation issues (denormalized for query performance)
+-- NOTE: No FK constraint on session_id because DuckDB UPDATE = DELETE + INSERT
+-- which triggers FK violations. Referential integrity handled at app layer.
+CREATE TABLE IF NOT EXISTS validation_issue (
+    id VARCHAR PRIMARY KEY,
+    session_id VARCHAR NOT NULL,
+    row_number INTEGER NOT NULL CHECK (row_number > 0),
+    field_name VARCHAR NOT NULL,
+    source_column VARCHAR,
+    severity VARCHAR NOT NULL CHECK (severity IN ('error', 'warning', 'info')),
+    issue_code VARCHAR NOT NULL,
+    message VARCHAR NOT NULL,
+    suggestion VARCHAR,
+    raw_value VARCHAR,
+    related_row INTEGER
 );
 
 -- Indexes for efficient queries
@@ -96,301 +189,235 @@ CREATE INDEX IF NOT EXISTS idx_census_upload ON census(upload_timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_census_client ON census(client_name);
 CREATE INDEX IF NOT EXISTS idx_participant_census ON participant(census_id);
 CREATE INDEX IF NOT EXISTS idx_participant_hce ON participant(census_id, is_hce);
+CREATE INDEX IF NOT EXISTS idx_participant_ssn_hash ON participant(ssn_hash);
 CREATE INDEX IF NOT EXISTS idx_result_census ON analysis_result(census_id);
 CREATE INDEX IF NOT EXISTS idx_result_grid ON analysis_result(grid_analysis_id);
 CREATE INDEX IF NOT EXISTS idx_result_timestamp ON analysis_result(run_timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_grid_census ON grid_analysis(census_id);
 CREATE INDEX IF NOT EXISTS idx_import_metadata_census ON import_metadata(census_id);
-
--- ============================================================================
--- CSV Import Wizard Tables (Feature 003-csv-import-wizard)
--- ============================================================================
-
--- Import wizard session state
-CREATE TABLE IF NOT EXISTS import_session (
-    id TEXT PRIMARY KEY,
-    user_id TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    expires_at TEXT NOT NULL,
-    current_step TEXT NOT NULL DEFAULT 'upload'
-        CHECK (current_step IN ('upload', 'map', 'validate', 'preview', 'confirm', 'completed')),
-    file_reference TEXT,
-    original_filename TEXT,
-    file_size_bytes INTEGER,
-    row_count INTEGER,
-    headers TEXT,  -- JSON array
-    column_mapping TEXT,  -- JSON object
-    validation_results TEXT,  -- JSON object
-    duplicate_resolution TEXT,  -- JSON object
-    import_result_id TEXT REFERENCES import_log(id)
-);
-
--- Saved column mapping profiles
-CREATE TABLE IF NOT EXISTS mapping_profile (
-    id TEXT PRIMARY KEY,
-    user_id TEXT,
-    name TEXT NOT NULL,
-    description TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    column_mapping TEXT NOT NULL,  -- JSON object
-    expected_headers TEXT,  -- JSON array
-    UNIQUE (user_id, name)
-);
-
--- Validation issues (denormalized for query performance)
-CREATE TABLE IF NOT EXISTS validation_issue (
-    id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL REFERENCES import_session(id) ON DELETE CASCADE,
-    row_number INTEGER NOT NULL CHECK (row_number > 0),
-    field_name TEXT NOT NULL,
-    source_column TEXT,
-    severity TEXT NOT NULL CHECK (severity IN ('error', 'warning', 'info')),
-    issue_code TEXT NOT NULL,
-    message TEXT NOT NULL,
-    suggestion TEXT,
-    raw_value TEXT,
-    related_row INTEGER
-);
-
--- Import logs with indefinite retention
-CREATE TABLE IF NOT EXISTS import_log (
-    id TEXT PRIMARY KEY,
-    session_id TEXT REFERENCES import_session(id),
-    census_id TEXT REFERENCES census(id) ON DELETE SET NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    completed_at TEXT,
-    original_filename TEXT NOT NULL,
-    total_rows INTEGER NOT NULL,
-    imported_count INTEGER NOT NULL DEFAULT 0,
-    rejected_count INTEGER NOT NULL DEFAULT 0,
-    warning_count INTEGER NOT NULL DEFAULT 0,
-    replaced_count INTEGER NOT NULL DEFAULT 0,
-    skipped_count INTEGER NOT NULL DEFAULT 0,
-    column_mapping_used TEXT NOT NULL,  -- JSON object
-    detailed_results TEXT,  -- JSON array
-    deleted_at TEXT  -- soft delete
-);
-
--- Wizard indexes
 CREATE INDEX IF NOT EXISTS idx_import_session_expires ON import_session(expires_at);
 CREATE INDEX IF NOT EXISTS idx_import_session_user ON import_session(user_id);
+CREATE INDEX IF NOT EXISTS idx_import_session_workspace ON import_session(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_mapping_profile_user ON mapping_profile(user_id);
+CREATE INDEX IF NOT EXISTS idx_mapping_profile_workspace ON mapping_profile(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_validation_issue_session ON validation_issue(session_id);
 CREATE INDEX IF NOT EXISTS idx_validation_issue_severity ON validation_issue(session_id, severity);
 CREATE INDEX IF NOT EXISTS idx_import_log_census ON import_log(census_id);
 CREATE INDEX IF NOT EXISTS idx_import_log_created ON import_log(created_at DESC);
 """
 
-# Additional SQL for extending participant table with wizard fields
-PARTICIPANT_EXTENSION_SQL = """
--- Add new columns for census import wizard (if not exist)
--- Note: SQLite doesn't support IF NOT EXISTS for ALTER TABLE,
--- so we check programmatically before adding columns
-"""
+
+class DatabaseError(Exception):
+    """Exception raised for database-related errors."""
+    pass
 
 
-def _add_column_if_not_exists(conn, table: str, column: str, col_type: str, default: str | None = None) -> None:
-    """Add a column to a table if it doesn't already exist."""
-    cursor = conn.execute(f"PRAGMA table_info({table})")
-    columns = [row[1] for row in cursor.fetchall()]
-    if column not in columns:
-        default_clause = f" DEFAULT {default}" if default is not None else ""
-        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}{default_clause}")
-
-
-def extend_participant_table(conn) -> None:
+def get_workspace_db_path(workspace_id: str) -> Path:
     """
-    Extend the participant table with additional fields for the import wizard.
-
-    New fields:
-    - ssn_hash: Hashed SSN for duplicate detection
-    - dob: Date of birth
-    - hire_date: Hire date
-    - termination_date: Termination date (for ACP eligibility)
-    - employee_pre_tax_cents: Employee pre-tax contribution amount
-    - employee_after_tax_cents: Employee after-tax contribution amount
-    - employee_roth_cents: Employee Roth contribution amount
-    - employer_match_cents: Employer match contribution amount
-    - employer_non_elective_cents: Employer non-elective contribution amount
-    """
-    _add_column_if_not_exists(conn, "participant", "ssn_hash", "TEXT")
-    _add_column_if_not_exists(conn, "participant", "dob", "TEXT")
-    _add_column_if_not_exists(conn, "participant", "hire_date", "TEXT")
-    _add_column_if_not_exists(conn, "participant", "termination_date", "TEXT")
-    _add_column_if_not_exists(conn, "participant", "employee_pre_tax_cents", "INTEGER", "0")
-    _add_column_if_not_exists(conn, "participant", "employee_after_tax_cents", "INTEGER", "0")
-    _add_column_if_not_exists(conn, "participant", "employee_roth_cents", "INTEGER", "0")
-    _add_column_if_not_exists(conn, "participant", "employer_match_cents", "INTEGER", "0")
-    _add_column_if_not_exists(conn, "participant", "employer_non_elective_cents", "INTEGER", "0")
-
-    # Add index for SSN hash duplicate detection
-    conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_participant_ssn_hash
-        ON participant(ssn_hash)
-    """)
-    conn.commit()
-
-
-def extend_import_session_table(conn) -> None:
-    """
-    Extend the import_session table with workspace_id and date_format fields.
-
-    T004: Add date_format field for date parsing
-    """
-    _add_column_if_not_exists(conn, "import_session", "workspace_id", "TEXT")
-    _add_column_if_not_exists(conn, "import_session", "date_format", "TEXT")
-
-    # Add index for workspace
-    conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_import_session_workspace
-        ON import_session(workspace_id)
-    """)
-    conn.commit()
-
-
-def extend_mapping_profile_table(conn) -> None:
-    """
-    Extend the mapping_profile table with workspace_id, date_format, and is_default fields.
-
-    T005: Add workspace-scoped fields for mapping profiles
-    """
-    _add_column_if_not_exists(conn, "mapping_profile", "workspace_id", "TEXT")
-    _add_column_if_not_exists(conn, "mapping_profile", "date_format", "TEXT")
-    _add_column_if_not_exists(conn, "mapping_profile", "is_default", "INTEGER", "0")
-
-    # Add index for workspace
-    conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_mapping_profile_workspace
-        ON mapping_profile(workspace_id)
-    """)
-    conn.commit()
-
-
-def get_database_path() -> Path:
-    """Get the database file path, creating parent directories if needed."""
-    db_path = DATABASE_PATH
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    return db_path
-
-
-def create_connection(db_path: Path | None = None) -> sqlite3.Connection:
-    """
-    Create a database connection with WAL mode and foreign keys enabled.
+    Get the database file path for a workspace.
 
     Args:
-        db_path: Optional path to database file. Uses default if not provided.
+        workspace_id: UUID of the workspace
 
     Returns:
-        SQLite connection configured for the application
+        Path to the workspace's DuckDB database file
     """
-    if db_path is None:
-        db_path = get_database_path()
-
-    conn = sqlite3.Connection(
-        db_path,
-        check_same_thread=False,
-        timeout=30.0
-    )
-
-    # Enable WAL mode and foreign keys
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-
-    # Return rows as dictionaries
-    conn.row_factory = sqlite3.Row
-
-    return conn
+    workspace_dir = WORKSPACE_BASE_DIR / workspace_id
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    return workspace_dir / WORKSPACE_DB_FILENAME
 
 
-def init_database(db_path: Path | None = None) -> None:
+def create_connection(db_path: Path) -> duckdb.DuckDBPyConnection:
+    """
+    Create a DuckDB database connection.
+
+    Args:
+        db_path: Path to database file
+
+    Returns:
+        DuckDB connection configured for the application
+
+    Raises:
+        DatabaseError: If connection cannot be established
+    """
+    try:
+        conn = duckdb.connect(str(db_path))
+        return conn
+    except Exception as e:
+        raise DatabaseError(f"Failed to connect to database at {db_path}: {e}")
+
+
+def init_database(conn: duckdb.DuckDBPyConnection) -> None:
     """
     Initialize the database schema.
 
     Creates all tables and indexes if they don't exist.
+    Records schema version for migration tracking.
 
     Args:
-        db_path: Optional path to database file. Uses default if not provided.
+        conn: DuckDB connection
     """
-    conn = create_connection(db_path)
-    try:
-        conn.executescript(SCHEMA_SQL)
-        conn.commit()
-        # Extend participant table with wizard fields
-        extend_participant_table(conn)
-        # Extend import_session table with workspace_id and date_format
-        extend_import_session_table(conn)
-        # Extend mapping_profile table with workspace_id, date_format, is_default
-        extend_mapping_profile_table(conn)
-    finally:
-        conn.close()
+    # Execute schema creation
+    conn.execute(SCHEMA_SQL)
+
+    # Record schema version if not exists
+    existing = conn.execute(
+        "SELECT version FROM schema_version WHERE version = ?",
+        [SCHEMA_VERSION]
+    ).fetchone()
+
+    if not existing:
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            [SCHEMA_VERSION, "Initial DuckDB schema"]
+        )
+
+    conn.commit()
 
 
 @contextmanager
-def get_connection(db_path: Path | None = None) -> Generator[sqlite3.Connection, None, None]:
+def get_connection(workspace_id: str) -> Generator[duckdb.DuckDBPyConnection, None, None]:
     """
-    Context manager for database connections.
+    Context manager for workspace database connections.
 
     Handles connection lifecycle and ensures proper cleanup.
+    Initializes database schema on first access.
 
     Args:
-        db_path: Optional path to database file. Uses default if not provided.
+        workspace_id: UUID of the workspace
 
     Yields:
-        SQLite connection
+        DuckDB connection for the workspace
     """
+    db_path = get_workspace_db_path(workspace_id)
     conn = create_connection(db_path)
     try:
+        # Ensure schema is initialized
+        init_database(conn)
         yield conn
     finally:
         conn.close()
 
 
-# Connection pool for FastAPI (simple implementation)
-_connection: sqlite3.Connection | None = None
+# Connection cache for FastAPI (workspace-aware)
+_connections: dict[str, duckdb.DuckDBPyConnection] = {}
 
 
-def get_db() -> sqlite3.Connection:
+def get_db(workspace_id: str) -> duckdb.DuckDBPyConnection:
     """
     Get a database connection for dependency injection.
 
     This is intended for use with FastAPI's Depends() mechanism.
-    For single-threaded Streamlit use, a shared connection is acceptable.
+    Caches connections per workspace for performance.
+
+    Args:
+        workspace_id: UUID of the workspace
 
     Returns:
-        SQLite connection
+        DuckDB connection for the workspace
     """
-    global _connection
-    if _connection is None:
-        init_database()
-        _connection = create_connection()
-    return _connection
+    global _connections
+
+    if workspace_id not in _connections:
+        db_path = get_workspace_db_path(workspace_id)
+        conn = create_connection(db_path)
+        init_database(conn)
+        _connections[workspace_id] = conn
+
+    return _connections[workspace_id]
 
 
-def close_db() -> None:
-    """Close the shared database connection."""
-    global _connection
-    if _connection is not None:
-        _connection.close()
-        _connection = None
+def close_db(workspace_id: str | None = None) -> None:
+    """
+    Close database connection(s).
+
+    Args:
+        workspace_id: If provided, close only that workspace's connection.
+                     If None, close all cached connections.
+    """
+    global _connections
+
+    if workspace_id is not None:
+        if workspace_id in _connections:
+            _connections[workspace_id].close()
+            del _connections[workspace_id]
+    else:
+        # Close all connections
+        for conn in _connections.values():
+            conn.close()
+        _connections.clear()
 
 
-def reset_database(db_path: Path | None = None) -> None:
+def reset_database(workspace_id: str) -> None:
     """
     Reset the database by dropping and recreating all tables.
 
-    WARNING: This deletes all data!
+    WARNING: This deletes all data in the workspace!
 
     Args:
-        db_path: Optional path to database file. Uses default if not provided.
+        workspace_id: UUID of the workspace
     """
-    close_db()
+    close_db(workspace_id)
 
-    if db_path is None:
-        db_path = get_database_path()
+    db_path = get_workspace_db_path(workspace_id)
 
     if db_path.exists():
         db_path.unlink()
 
-    init_database(db_path)
+    # Reinitialize
+    conn = create_connection(db_path)
+    try:
+        init_database(conn)
+    finally:
+        conn.close()
+
+
+def check_database_health(workspace_id: str) -> dict:
+    """
+    Check the health of a workspace database.
+
+    Args:
+        workspace_id: UUID of the workspace
+
+    Returns:
+        Dictionary with health status information
+    """
+    db_path = get_workspace_db_path(workspace_id)
+
+    result = {
+        "workspace_id": workspace_id,
+        "database_path": str(db_path),
+        "exists": db_path.exists(),
+        "healthy": False,
+        "schema_version": None,
+        "table_count": 0,
+        "error": None
+    }
+
+    if not db_path.exists():
+        result["error"] = "Database file does not exist"
+        return result
+
+    try:
+        conn = create_connection(db_path)
+        try:
+            # Check schema version
+            version_row = conn.execute(
+                "SELECT version FROM schema_version ORDER BY version DESC LIMIT 1"
+            ).fetchone()
+            if version_row:
+                result["schema_version"] = version_row[0]
+
+            # Count tables
+            tables = conn.execute(
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'main'"
+            ).fetchone()
+            result["table_count"] = tables[0] if tables else 0
+
+            result["healthy"] = True
+        finally:
+            conn.close()
+    except Exception as e:
+        result["error"] = str(e)
+
+    return result

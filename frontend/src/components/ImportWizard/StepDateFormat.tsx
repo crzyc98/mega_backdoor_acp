@@ -12,6 +12,7 @@ import type {
 } from '../../types/importWizard'
 
 interface StepDateFormatProps {
+  workspaceId: string
   sessionId: string
   detection: DateFormatDetection | null
   onSubmit: (format: string) => void
@@ -21,6 +22,7 @@ interface StepDateFormatProps {
 }
 
 export default function StepDateFormat({
+  workspaceId,
   sessionId,
   detection,
   onSubmit,
@@ -41,15 +43,15 @@ export default function StepDateFormat({
 
   // Load preview when format changes
   useEffect(() => {
-    if (!selectedFormat || !sessionId) return
+    if (!selectedFormat || !sessionId || !workspaceId) return
 
     setPreviewLoading(true)
     importWizardService
-      .previewDateFormat(sessionId, selectedFormat)
+      .previewDateFormat(workspaceId, sessionId, selectedFormat)
       .then(setPreview)
       .catch(() => setPreview(null))
       .finally(() => setPreviewLoading(false))
-  }, [sessionId, selectedFormat])
+  }, [workspaceId, sessionId, selectedFormat])
 
   const handleFormatChange = (format: string) => {
     setSelectedFormat(format)

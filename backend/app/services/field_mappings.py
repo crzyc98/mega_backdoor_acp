@@ -22,11 +22,19 @@ REQUIRED_FIELDS = [
     "employer_non_elective",
 ]
 
+# Optional fields that enhance functionality
+OPTIONAL_FIELDS = [
+    "hce_status",
+    "termination_date",
+]
+
 # Field display names for UI
 FIELD_DISPLAY_NAMES = {
     "ssn": "Social Security Number",
     "dob": "Date of Birth",
     "hire_date": "Hire Date",
+    "termination_date": "Termination Date",
+    "hce_status": "HCE Status",
     "compensation": "Compensation",
     "employee_pre_tax": "Employee Pre-Tax Contributions",
     "employee_after_tax": "Employee After-Tax Contributions",
@@ -97,6 +105,10 @@ FIELD_ALIASES: dict[str, list[str]] = {
         "pre tax",
         "pretax",
         "pre_tax",
+        "pre-tax",
+        "pre tax contributions",
+        "pre-tax contributions",
+        "pre_tax_contributions",
         "401k",
         "401(k)",
         "deferral",
@@ -118,6 +130,10 @@ FIELD_ALIASES: dict[str, list[str]] = {
         "after tax",
         "aftertax",
         "after_tax",
+        "after-tax",
+        "after tax contributions",
+        "after-tax contributions",
+        "after_tax_contributions",
         "ee after tax",
         "ee_after_tax",
         "ee aftertax",
@@ -143,6 +159,7 @@ FIELD_ALIASES: dict[str, list[str]] = {
         "roth_deferral",
         "roth contributions",
         "roth_contributions",
+        "roth contribution",
     ],
     "employer_match": [
         "match",
@@ -177,6 +194,38 @@ FIELD_ALIASES: dict[str, list[str]] = {
         "employer contribution",
         "employer_contribution",
         "discretionary",
+    ],
+    # Optional fields
+    "termination_date": [
+        "termination date",
+        "termination_date",
+        "terminationdate",
+        "term date",
+        "term_date",
+        "termdate",
+        "end date",
+        "end_date",
+        "separation date",
+        "separation_date",
+        "date terminated",
+        "date_terminated",
+        "last day",
+        "last_day",
+    ],
+    "hce_status": [
+        "hce status",
+        "hce_status",
+        "hcestatus",
+        "hce",
+        "is hce",
+        "is_hce",
+        "ishce",
+        "highly compensated",
+        "highly_compensated",
+        "hce indicator",
+        "hce_indicator",
+        "hce flag",
+        "hce_flag",
     ],
 }
 

@@ -16,7 +16,6 @@ from slowapi.util import get_remote_address
 
 from app.routers.schemas import Error, HealthResponse
 from app.services.constants import RATE_LIMIT, SYSTEM_VERSION
-from app.storage.database import init_database
 
 # Initialize rate limiter
 limiter = Limiter(key_func=get_remote_address)
@@ -57,8 +56,12 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_event() -> None:
-    """Initialize database on startup."""
-    init_database()
+    """Application startup handler.
+
+    Note: Database initialization is now handled lazily per workspace
+    when get_db(workspace_id) is called. No global init needed.
+    """
+    pass
 
 
 @app.get(

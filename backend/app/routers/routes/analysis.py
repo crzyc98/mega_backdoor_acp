@@ -12,11 +12,12 @@ import time
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
+from app.routers.dependencies import get_workspace_id_from_header
 from app.routers.schemas import (
     AnalysisResult,
     AnalysisResultListResponse,
@@ -82,9 +83,10 @@ async def run_analysis(
     request: Request,
     census_id: str,
     scenario: SingleScenarioRequest,
+    workspace_id: str = Depends(get_workspace_id_from_header),
 ) -> AnalysisResult:
     """T041: Run single scenario analysis endpoint."""
-    conn = get_db()
+    conn = get_db(workspace_id)
 
     # Verify census exists
     census_repo = CensusRepository(conn)
@@ -172,9 +174,10 @@ async def run_grid_analysis(
     request: Request,
     census_id: str,
     grid_request: GridScenarioRequest,
+    workspace_id: str = Depends(get_workspace_id_from_header),
 ) -> GridAnalysisResult:
     """T058 (Phase 4): Run grid scenario analysis endpoint."""
-    conn = get_db()
+    conn = get_db(workspace_id)
 
     # Verify census exists
     census_repo = CensusRepository(conn)
@@ -298,9 +301,10 @@ async def list_results(
     request: Request,
     census_id: str,
     grid_id: str | None = None,
+    workspace_id: str = Depends(get_workspace_id_from_header),
 ) -> AnalysisResultListResponse:
     """T042: List analysis results endpoint."""
-    conn = get_db()
+    conn = get_db(workspace_id)
 
     # Verify census exists
     census_repo = CensusRepository(conn)
@@ -361,9 +365,10 @@ async def list_results(
 async def run_scenario_v2(
     request: Request,
     scenario: ScenarioRequestV2,
+    workspace_id: str = Depends(get_workspace_id_from_header),
 ) -> ScenarioResultV2:
     """T027: Run v2 single scenario analysis endpoint."""
-    conn = get_db()
+    conn = get_db(workspace_id)
 
     # T028: Validate census exists
     census_repo = CensusRepository(conn)
@@ -479,9 +484,10 @@ async def run_scenario_v2(
 async def run_grid_v2(
     request: Request,
     grid_request: GridRequestV2,
+    workspace_id: str = Depends(get_workspace_id_from_header),
 ) -> GridResultV2:
     """T035: Run v2 grid scenario analysis endpoint."""
-    conn = get_db()
+    conn = get_db(workspace_id)
 
     # T036: Validate census exists
     census_repo = CensusRepository(conn)
@@ -638,9 +644,10 @@ async def get_employee_impact(
     request: Request,
     census_id: str,
     impact_request: EmployeeImpactRequest,
+    workspace_id: str = Depends(get_workspace_id_from_header),
 ) -> EmployeeImpactViewResponse:
     """T023: Get employee-level impact view endpoint."""
-    conn = get_db()
+    conn = get_db(workspace_id)
 
     # Initialize repositories
     census_repo = CensusRepository(conn)
@@ -777,9 +784,10 @@ async def export_employee_impact(
     request: Request,
     census_id: str,
     export_request: EmployeeImpactExportRequest,
+    workspace_id: str = Depends(get_workspace_id_from_header),
 ) -> StreamingResponse:
     """T059: Export employee-level impact to CSV endpoint."""
-    conn = get_db()
+    conn = get_db(workspace_id)
 
     # Initialize repositories
     census_repo = CensusRepository(conn)

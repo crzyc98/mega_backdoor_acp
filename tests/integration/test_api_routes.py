@@ -6,65 +6,58 @@ Tests census upload, analysis, and export endpoints.
 
 import io
 import pytest
+import uuid
+from pathlib import Path
+import tempfile
 from fastapi.testclient import TestClient
 
 from src.api.main import app
-from src.storage.database import reset_database, get_database_path
+from src.storage.database import reset_database, get_workspace_db_path, close_db
 
 
 @pytest.fixture(scope="function", autouse=True)
 def reset_db():
-    """Reset database before each test."""
+    """Reset database before each test using a test workspace."""
     from src.storage import database
-    from pathlib import Path
-    import tempfile
-    import os
 
-    # Use a unique temp database per test
-    test_db_path = Path(tempfile.gettempdir()) / f"test_acp_{os.getpid()}_{id(reset_db)}.db"
+    # Use a unique test workspace for each test
+    test_workspace_id = f"test-{uuid.uuid4()}"
 
-    # Close any existing connection
+    # Close any existing connections
     database.close_db()
 
-    # Remove old test database if it exists
-    for f in Path(tempfile.gettempdir()).glob("test_acp_*.db*"):
-        try:
-            f.unlink()
-        except Exception:
-            pass
+    # Initialize fresh database for test workspace
+    from src.storage.database import get_db, init_database, create_connection
 
-    # Patch DATABASE_PATH for testing
-    from src.core import constants
-    original_path = constants.DATABASE_PATH
-    constants.DATABASE_PATH = test_db_path
+    db_path = get_workspace_db_path(test_workspace_id)
+    conn = create_connection(db_path)
+    init_database(conn)
+    database._connections[test_workspace_id] = conn
 
-    # Initialize fresh database
-    database.init_database(test_db_path)
-    database._connection = database.create_connection(test_db_path)
-
-    yield
+    # Store workspace ID for tests to access
+    yield test_workspace_id
 
     # Cleanup
-    database.close_db()
-    constants.DATABASE_PATH = original_path
+    database.close_db(test_workspace_id)
 
-    # Remove test database
+    # Remove test database file
     try:
-        if test_db_path.exists():
-            test_db_path.unlink()
-        # Remove WAL files
-        for ext in ["-wal", "-shm"]:
-            wal = Path(str(test_db_path) + ext)
-            if wal.exists():
-                wal.unlink()
+        db_path = get_workspace_db_path(test_workspace_id)
+        if db_path.exists():
+            db_path.unlink()
+        # Remove workspace directory if empty
+        db_path.parent.rmdir()
     except Exception:
         pass
 
 
 @pytest.fixture(scope="function")
 def client(reset_db):
-    """Create test client."""
-    return TestClient(app)
+    """Create test client with workspace header."""
+    test_client = TestClient(app)
+    # Set default workspace header for tests
+    test_client.headers["X-Workspace-ID"] = reset_db
+    return test_client
 
 
 @pytest.fixture

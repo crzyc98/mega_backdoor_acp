@@ -5,12 +5,36 @@ Dataclass models representing census, participant, and analysis entities.
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Literal
+from datetime import datetime, date
+from typing import Literal, Any
 
 
 # Type alias for HCE determination mode
 HCEMode = Literal["explicit", "compensation_threshold"]
+
+
+def _parse_datetime(value: Any) -> datetime:
+    """Parse datetime from various formats (string or datetime object)."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        return datetime.fromisoformat(value)
+    raise ValueError(f"Cannot parse datetime from {type(value)}: {value}")
+
+
+def _parse_date(value: Any) -> date | None:
+    """Parse date from various formats (string, date, or datetime object)."""
+    if value is None:
+        return None
+    if isinstance(value, date):
+        return value
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, str):
+        return date.fromisoformat(value)
+    raise ValueError(f"Cannot parse date from {type(value)}: {value}")
 
 
 @dataclass
@@ -69,7 +93,7 @@ class Census:
             client_name=row.get("client_name"),
             plan_year=row["plan_year"],
             hce_mode=row.get("hce_mode", "explicit"),
-            upload_timestamp=datetime.fromisoformat(row["upload_timestamp"]),
+            upload_timestamp=_parse_datetime(row["upload_timestamp"]),
             participant_count=row["participant_count"],
             hce_count=row["hce_count"],
             nhce_count=row["nhce_count"],
@@ -213,7 +237,7 @@ class AnalysisResult:
             margin=row["margin"],
             result=row["result"],
             limiting_test=row["limiting_test"],
-            run_timestamp=datetime.fromisoformat(row["run_timestamp"]),
+            run_timestamp=_parse_datetime(row["run_timestamp"]),
             version=row["version"],
         )
 
@@ -261,7 +285,7 @@ class GridAnalysis:
             id=row["id"],
             census_id=row["census_id"],
             name=row["name"],
-            created_timestamp=datetime.fromisoformat(row["created_timestamp"]),
+            created_timestamp=_parse_datetime(row["created_timestamp"]),
             seed=row["seed"],
             adoption_rates=json.loads(row["adoption_rates"]),
             contribution_rates=json.loads(row["contribution_rates"]),
@@ -305,7 +329,7 @@ class ImportMetadata:
             source_filename=row["source_filename"],
             column_mapping=json.loads(row["column_mapping"]),
             row_count=row["row_count"],
-            created_at=datetime.fromisoformat(row["created_at"]),
+            created_at=_parse_datetime(row["created_at"]),
         )
 
 
@@ -371,9 +395,9 @@ class ImportSession:
         return cls(
             id=row["id"],
             user_id=row.get("user_id"),
-            created_at=datetime.fromisoformat(row["created_at"]),
-            updated_at=datetime.fromisoformat(row["updated_at"]) if row.get("updated_at") else None,
-            expires_at=datetime.fromisoformat(row["expires_at"]),
+            created_at=_parse_datetime(row["created_at"]),
+            updated_at=_parse_datetime(row.get("updated_at")),
+            expires_at=_parse_datetime(row["expires_at"]),
             current_step=row["current_step"],
             file_reference=row.get("file_reference"),
             original_filename=row.get("original_filename"),
@@ -427,8 +451,8 @@ class MappingProfile:
             user_id=row.get("user_id"),
             name=row["name"],
             description=row.get("description"),
-            created_at=datetime.fromisoformat(row["created_at"]),
-            updated_at=datetime.fromisoformat(row["updated_at"]) if row.get("updated_at") else None,
+            created_at=_parse_datetime(row["created_at"]),
+            updated_at=_parse_datetime(row.get("updated_at")),
             column_mapping=json.loads(row["column_mapping"]),
             expected_headers=json.loads(row["expected_headers"]) if row.get("expected_headers") else None,
         )
@@ -541,8 +565,8 @@ class ImportLog:
             id=row["id"],
             session_id=row.get("session_id"),
             census_id=row.get("census_id"),
-            created_at=datetime.fromisoformat(row["created_at"]),
-            completed_at=datetime.fromisoformat(row["completed_at"]) if row.get("completed_at") else None,
+            created_at=_parse_datetime(row["created_at"]),
+            completed_at=_parse_datetime(row.get("completed_at")),
             original_filename=row["original_filename"],
             total_rows=row["total_rows"],
             imported_count=row.get("imported_count", 0),
@@ -552,5 +576,5 @@ class ImportLog:
             skipped_count=row.get("skipped_count", 0),
             column_mapping_used=json.loads(row["column_mapping_used"]),
             detailed_results=json.loads(row["detailed_results"]) if row.get("detailed_results") else None,
-            deleted_at=datetime.fromisoformat(row["deleted_at"]) if row.get("deleted_at") else None,
+            deleted_at=_parse_datetime(row.get("deleted_at")),
         )

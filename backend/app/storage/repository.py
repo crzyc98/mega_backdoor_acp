@@ -7,11 +7,11 @@ Provides CRUD operations for census, participant, and analysis entities.
 from __future__ import annotations
 
 import json
-import sqlite3
 import uuid
 from datetime import datetime
-from typing import Generator
+from typing import Any
 
+import duckdb
 import pandas as pd
 
 from app.services.constants import SYSTEM_VERSION
@@ -29,6 +29,28 @@ from app.storage.models import (
 )
 
 
+def row_to_dict(cursor: duckdb.DuckDBPyRelation, row: tuple) -> dict[str, Any]:
+    """
+    Convert a DuckDB result row to a dictionary.
+
+    DuckDB returns tuples, not Row objects like SQLite.
+    We use the cursor's description to get column names.
+
+    Args:
+        cursor: The DuckDB cursor that executed the query
+        row: The result row tuple
+
+    Returns:
+        Dictionary mapping column names to values
+    """
+    if row is None:
+        return {}
+    if cursor.description is None:
+        return {}
+    columns = [col[0] for col in cursor.description]
+    return dict(zip(columns, row))
+
+
 class CensusRepository:
     """
     Repository for Census entity operations.
@@ -36,7 +58,7 @@ class CensusRepository:
     T034: CensusRepository with save/get/list/delete operations
     """
 
-    def __init__(self, conn: sqlite3.Connection):
+    def __init__(self, conn: duckdb.DuckDBPyConnection):
         self.conn = conn
 
     def save(self, census: Census) -> Census:
@@ -124,7 +146,7 @@ class CensusRepository:
         row = cursor.fetchone()
         if row is None:
             return None
-        return Census.from_row(dict(row))
+        return Census.from_row(row_to_dict(cursor, row))
 
     def list(
         self,
@@ -177,7 +199,7 @@ class CensusRepository:
             params + [limit, offset],
         )
 
-        censuses = [Census.from_row(dict(row)) for row in cursor.fetchall()]
+        censuses = [Census.from_row(row_to_dict(cursor, row)) for row in cursor.fetchall()]
         return censuses, total
 
     def delete(self, census_id: str) -> bool:
@@ -185,12 +207,33 @@ class CensusRepository:
         Delete a census and all associated data.
 
         Returns True if census was deleted, False if not found.
+
+        Note: DuckDB doesn't support ON DELETE CASCADE, so we manually
+        delete dependent records in order.
         """
         # Check if exists
         if self.get(census_id) is None:
             return False
 
-        # Delete (cascade handles participants and results)
+        # Delete dependent records first (DuckDB doesn't support CASCADE)
+        # Order matters due to FK constraints
+
+        # Delete analysis results (depends on census and grid_analysis)
+        self.conn.execute("DELETE FROM analysis_result WHERE census_id = ?", (census_id,))
+
+        # Delete grid analyses (depends on census)
+        self.conn.execute("DELETE FROM grid_analysis WHERE census_id = ?", (census_id,))
+
+        # Delete import metadata (depends on census)
+        self.conn.execute("DELETE FROM import_metadata WHERE census_id = ?", (census_id,))
+
+        # Set census_id to NULL in import logs (instead of CASCADE/SET NULL)
+        self.conn.execute("UPDATE import_log SET census_id = NULL WHERE census_id = ?", (census_id,))
+
+        # Delete participants (depends on census)
+        self.conn.execute("DELETE FROM participant WHERE census_id = ?", (census_id,))
+
+        # Finally delete the census
         self.conn.execute("DELETE FROM census WHERE id = ?", (census_id,))
         self.conn.commit()
         return True
@@ -203,7 +246,7 @@ class ParticipantRepository:
     T035: ParticipantRepository with bulk insert
     """
 
-    def __init__(self, conn: sqlite3.Connection):
+    def __init__(self, conn: duckdb.DuckDBPyConnection):
         self.conn = conn
 
     def bulk_insert(self, participants: list[Participant]) -> int:
@@ -227,7 +270,7 @@ class ParticipantRepository:
                     p.id,
                     p.census_id,
                     p.internal_id,
-                    1 if p.is_hce else 0,
+                    p.is_hce,  # DuckDB uses native BOOLEAN
                     p.compensation_cents,
                     p.deferral_rate,
                     p.match_rate,
@@ -248,23 +291,23 @@ class ParticipantRepository:
             "SELECT * FROM participant WHERE census_id = ?",
             (census_id,),
         )
-        return [Participant.from_row(dict(row)) for row in cursor.fetchall()]
+        return [Participant.from_row(row_to_dict(cursor, row)) for row in cursor.fetchall()]
 
     def get_hces_by_census(self, census_id: str) -> list[Participant]:
         """Get HCE participants for a census."""
         cursor = self.conn.execute(
-            "SELECT * FROM participant WHERE census_id = ? AND is_hce = 1",
+            "SELECT * FROM participant WHERE census_id = ? AND is_hce = TRUE",
             (census_id,),
         )
-        return [Participant.from_row(dict(row)) for row in cursor.fetchall()]
+        return [Participant.from_row(row_to_dict(cursor, row)) for row in cursor.fetchall()]
 
     def get_nhces_by_census(self, census_id: str) -> list[Participant]:
         """Get NHCE participants for a census."""
         cursor = self.conn.execute(
-            "SELECT * FROM participant WHERE census_id = ? AND is_hce = 0",
+            "SELECT * FROM participant WHERE census_id = ? AND is_hce = FALSE",
             (census_id,),
         )
-        return [Participant.from_row(dict(row)) for row in cursor.fetchall()]
+        return [Participant.from_row(row_to_dict(cursor, row)) for row in cursor.fetchall()]
 
     def get_as_calculation_dicts(self, census_id: str) -> list[dict]:
         """
@@ -289,7 +332,9 @@ class ParticipantRepository:
         if census_row is None:
             return []
 
-        plan_year_start, plan_year_end = plan_year_bounds(census_row["plan_year"])
+        # DuckDB returns tuples; plan_year is at index 0
+        plan_year = census_row[0]
+        plan_year_start, plan_year_end = plan_year_bounds(plan_year)
         participants = self.get_by_census(census_id)
         calculation_dicts: list[dict] = []
 
@@ -348,9 +393,9 @@ class ParticipantRepository:
         params: list = [census_id]
 
         if hce_only:
-            conditions.append("is_hce = 1")
+            conditions.append("is_hce = TRUE")
         elif nhce_only:
-            conditions.append("is_hce = 0")
+            conditions.append("is_hce = FALSE")
 
         where_clause = "WHERE " + " AND ".join(conditions)
 
@@ -371,7 +416,7 @@ class ParticipantRepository:
             params + [limit, offset],
         )
 
-        participants = [Participant.from_row(dict(row)) for row in cursor.fetchall()]
+        participants = [Participant.from_row(row_to_dict(cursor, row)) for row in cursor.fetchall()]
         return participants, total
 
 
@@ -382,7 +427,7 @@ class ImportMetadataRepository:
     T007: ImportMetadataRepository with save/get methods
     """
 
-    def __init__(self, conn: sqlite3.Connection):
+    def __init__(self, conn: duckdb.DuckDBPyConnection):
         self.conn = conn
 
     def save(self, metadata: ImportMetadata) -> ImportMetadata:
@@ -414,7 +459,7 @@ class ImportMetadataRepository:
         row = cursor.fetchone()
         if row is None:
             return None
-        return ImportMetadata.from_row(dict(row))
+        return ImportMetadata.from_row(row_to_dict(cursor, row))
 
 
 class AnalysisResultRepository:
@@ -424,7 +469,7 @@ class AnalysisResultRepository:
     T036: AnalysisResultRepository with save/get operations
     """
 
-    def __init__(self, conn: sqlite3.Connection):
+    def __init__(self, conn: duckdb.DuckDBPyConnection):
         self.conn = conn
 
     def save(self, result: AnalysisResult) -> AnalysisResult:
@@ -466,7 +511,7 @@ class AnalysisResultRepository:
         row = cursor.fetchone()
         if row is None:
             return None
-        return AnalysisResult.from_row(dict(row))
+        return AnalysisResult.from_row(row_to_dict(cursor, row))
 
     def list_by_census(
         self,
@@ -506,7 +551,7 @@ class AnalysisResultRepository:
             params,
         )
 
-        results = [AnalysisResult.from_row(dict(row)) for row in cursor.fetchall()]
+        results = [AnalysisResult.from_row(row_to_dict(cursor, row)) for row in cursor.fetchall()]
         return results, total
 
 
@@ -517,7 +562,7 @@ class GridAnalysisRepository:
     T056 (Phase 4): GridAnalysisRepository with save/get operations
     """
 
-    def __init__(self, conn: sqlite3.Connection):
+    def __init__(self, conn: duckdb.DuckDBPyConnection):
         self.conn = conn
 
     def save(self, grid: GridAnalysis) -> GridAnalysis:
@@ -551,7 +596,7 @@ class GridAnalysisRepository:
         row = cursor.fetchone()
         if row is None:
             return None
-        return GridAnalysis.from_row(dict(row))
+        return GridAnalysis.from_row(row_to_dict(cursor, row))
 
     def list_by_census(self, census_id: str) -> list[GridAnalysis]:
         """List all grid analyses for a census."""
@@ -559,7 +604,7 @@ class GridAnalysisRepository:
             "SELECT * FROM grid_analysis WHERE census_id = ? ORDER BY created_timestamp DESC",
             (census_id,),
         )
-        return [GridAnalysis.from_row(dict(row)) for row in cursor.fetchall()]
+        return [GridAnalysis.from_row(row_to_dict(cursor, row)) for row in cursor.fetchall()]
 
 
 def create_census_from_dataframe(
@@ -658,7 +703,7 @@ class ImportSessionRepository:
     T008: ImportSessionRepository with CRUD operations
     """
 
-    def __init__(self, conn: sqlite3.Connection):
+    def __init__(self, conn: duckdb.DuckDBPyConnection):
         self.conn = conn
 
     def save(self, session: ImportSession) -> ImportSession:
@@ -747,7 +792,7 @@ class ImportSessionRepository:
         row = cursor.fetchone()
         if row is None:
             return None
-        return ImportSession.from_row(dict(row))
+        return ImportSession.from_row(row_to_dict(cursor, row))
 
     def list(
         self,
@@ -775,7 +820,7 @@ class ImportSessionRepository:
             params.append(user_id)
 
         if not include_expired:
-            conditions.append("expires_at > datetime('now')")
+            conditions.append("expires_at > current_timestamp")
 
         where_clause = ""
         if conditions:
@@ -798,7 +843,7 @@ class ImportSessionRepository:
             params + [limit, offset],
         )
 
-        sessions = [ImportSession.from_row(dict(row)) for row in cursor.fetchall()]
+        sessions = [ImportSession.from_row(row_to_dict(cursor, row)) for row in cursor.fetchall()]
         return sessions, total
 
     def delete(self, session_id: str) -> bool:
@@ -821,7 +866,7 @@ class ImportSessionRepository:
         Returns count of deleted sessions.
         """
         cursor = self.conn.execute(
-            "DELETE FROM import_session WHERE expires_at <= datetime('now')"
+            "DELETE FROM import_session WHERE expires_at <= current_timestamp"
         )
         self.conn.commit()
         return cursor.rowcount
@@ -834,12 +879,14 @@ class MappingProfileRepository:
     T009: MappingProfileRepository with CRUD operations
     """
 
-    def __init__(self, conn: sqlite3.Connection):
+    def __init__(self, conn: duckdb.DuckDBPyConnection):
         self.conn = conn
 
     def save(self, profile: MappingProfile) -> MappingProfile:
         """Save a new mapping profile to the database."""
         data = profile.to_dict()
+        # Use created_at for updated_at if not set (new profile)
+        updated_at = data["updated_at"] or data["created_at"]
         self.conn.execute(
             """
             INSERT INTO mapping_profile (
@@ -853,12 +900,12 @@ class MappingProfileRepository:
                 data["name"],
                 data["description"],
                 data["created_at"],
-                data["updated_at"],
+                updated_at,
                 data["column_mapping"],
                 data["expected_headers"],
                 data.get("workspace_id"),
                 data.get("date_format"),
-                1 if data.get("is_default") else 0,
+                data.get("is_default", False),
             ),
         )
         self.conn.commit()
@@ -887,7 +934,7 @@ class MappingProfileRepository:
                 data["column_mapping"],
                 data["expected_headers"],
                 data.get("date_format"),
-                1 if data.get("is_default") else 0,
+                data.get("is_default", False),
                 data["id"],
             ),
         )
@@ -903,7 +950,7 @@ class MappingProfileRepository:
         row = cursor.fetchone()
         if row is None:
             return None
-        return MappingProfile.from_row(dict(row))
+        return MappingProfile.from_row(row_to_dict(cursor, row))
 
     def get_by_name(
         self,
@@ -939,7 +986,7 @@ class MappingProfileRepository:
         row = cursor.fetchone()
         if row is None:
             return None
-        return MappingProfile.from_row(dict(row))
+        return MappingProfile.from_row(row_to_dict(cursor, row))
 
     def list(
         self,
@@ -985,7 +1032,7 @@ class MappingProfileRepository:
             params + [limit, offset],
         )
 
-        profiles = [MappingProfile.from_row(dict(row)) for row in cursor.fetchall()]
+        profiles = [MappingProfile.from_row(row_to_dict(cursor, row)) for row in cursor.fetchall()]
         return profiles, total
 
     def list_by_workspace(
@@ -1025,7 +1072,7 @@ class MappingProfileRepository:
             (workspace_id, limit, offset),
         )
 
-        profiles = [MappingProfile.from_row(dict(row)) for row in cursor.fetchall()]
+        profiles = [MappingProfile.from_row(row_to_dict(cursor, row)) for row in cursor.fetchall()]
         return profiles, total
 
     def delete(self, profile_id: str) -> bool:
@@ -1049,7 +1096,7 @@ class ValidationIssueRepository:
     T010: ValidationIssueRepository with bulk insert and query by severity
     """
 
-    def __init__(self, conn: sqlite3.Connection):
+    def __init__(self, conn: duckdb.DuckDBPyConnection):
         self.conn = conn
 
     def bulk_insert(self, issues: list[ValidationIssue]) -> int:
@@ -1132,7 +1179,7 @@ class ValidationIssueRepository:
             params + [limit, offset],
         )
 
-        issues = [ValidationIssue.from_row(dict(row)) for row in cursor.fetchall()]
+        issues = [ValidationIssue.from_row(row_to_dict(cursor, row)) for row in cursor.fetchall()]
         return issues, total
 
     def get_summary(self, session_id: str) -> dict[str, int]:
@@ -1153,7 +1200,8 @@ class ValidationIssueRepository:
 
         result = {"error": 0, "warning": 0, "info": 0}
         for row in cursor.fetchall():
-            result[row["severity"]] = row["count"]
+            # Row is tuple (severity, count)
+            result[row[0]] = row[1]
 
         return result
 
@@ -1178,7 +1226,7 @@ class ImportLogRepository:
     T011: ImportLogRepository with CRUD and soft delete
     """
 
-    def __init__(self, conn: sqlite3.Connection):
+    def __init__(self, conn: duckdb.DuckDBPyConnection):
         self.conn = conn
 
     def save(self, log: ImportLog) -> ImportLog:
@@ -1256,7 +1304,7 @@ class ImportLogRepository:
         row = cursor.fetchone()
         if row is None:
             return None
-        return ImportLog.from_row(dict(row))
+        return ImportLog.from_row(row_to_dict(cursor, row))
 
     def list(
         self,
@@ -1307,7 +1355,7 @@ class ImportLogRepository:
             params + [limit, offset],
         )
 
-        logs = [ImportLog.from_row(dict(row)) for row in cursor.fetchall()]
+        logs = [ImportLog.from_row(row_to_dict(cursor, row)) for row in cursor.fetchall()]
         return logs, total
 
     def soft_delete(self, log_id: str) -> bool:

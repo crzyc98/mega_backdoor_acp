@@ -5,8 +5,10 @@ Handles CSV and PDF export of analysis results.
 """
 
 from datetime import datetime
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Request, status
+import duckdb
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import Response
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -14,7 +16,7 @@ from slowapi.util import get_remote_address
 from src.api.schemas import Error
 from src.core.constants import RATE_LIMIT
 from src.core.export import format_csv_export, generate_pdf_report
-from src.storage.database import get_db
+from src.api.dependencies import get_database
 from src.storage.repository import (
     AnalysisResultRepository,
     CensusRepository,
@@ -44,10 +46,10 @@ limiter = Limiter(key_func=get_remote_address)
 async def export_csv(
     request: Request,
     census_id: str,
+    conn: Annotated[duckdb.DuckDBPyConnection, Depends(get_database)],
     grid_id: str | None = None,
 ) -> Response:
     """T072: Export results as CSV endpoint."""
-    conn = get_db()
 
     # Get census
     census_repo = CensusRepository(conn)
@@ -136,10 +138,10 @@ async def export_csv(
 async def export_pdf(
     request: Request,
     census_id: str,
+    conn: Annotated[duckdb.DuckDBPyConnection, Depends(get_database)],
     grid_id: str | None = None,
 ) -> Response:
     """T073: Export results as PDF endpoint."""
-    conn = get_db()
 
     # Get census
     census_repo = CensusRepository(conn)

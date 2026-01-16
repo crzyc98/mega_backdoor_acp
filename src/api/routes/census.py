@@ -12,11 +12,12 @@ import uuid
 from datetime import datetime
 from typing import Annotated
 
-logger = logging.getLogger(__name__)
-
-from fastapi import APIRouter, File, Form, HTTPException, Query, Request, Response, UploadFile, status
+import duckdb
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile, status
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+
+logger = logging.getLogger(__name__)
 
 from src.api.schemas import (
     Census,
@@ -36,7 +37,7 @@ from src.api.schemas import (
 from src.core.census_parser import CensusValidationError, detect_column_mapping, process_census
 from src.core.constants import RATE_LIMIT
 from src.core.hce_thresholds import HCE_THRESHOLDS, get_threshold_for_year
-from src.storage.database import get_db
+from src.api.dependencies import get_database
 from src.storage.models import ImportMetadata
 from src.storage.repository import (
     CensusRepository,
@@ -107,6 +108,7 @@ async def upload_census(
     request: Request,
     file: Annotated[UploadFile, File(description="CSV file with participant data")],
     plan_year: Annotated[int, Form(ge=2020, le=2100, description="Plan year for analysis")],
+    conn: Annotated[duckdb.DuckDBPyConnection, Depends(get_database)],
     name: Annotated[str | None, Form(max_length=255, description="Name for the census")] = None,
     client_name: Annotated[str | None, Form(max_length=255, description="Client/organization name")] = None,
     hce_mode: Annotated[HCEMode, Form(description="HCE determination method")] = "explicit",
@@ -172,7 +174,6 @@ async def upload_census(
     )
 
     # Save to database
-    conn = get_db()
     census_repo = CensusRepository(conn)
     participant_repo = ParticipantRepository(conn)
     import_metadata_repo = ImportMetadataRepository(conn)
@@ -224,13 +225,13 @@ async def upload_census(
 @limiter.limit(RATE_LIMIT)
 async def list_censuses(
     request: Request,
+    conn: Annotated[duckdb.DuckDBPyConnection, Depends(get_database)],
     plan_year: int | None = None,
     client_name: str | None = Query(None, description="Filter by client name (partial match)"),
     limit: int = Query(50, ge=1, le=100, description="Maximum results to return"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
 ) -> CensusListResponse:
     """List censuses with client_name filter support."""
-    conn = get_db()
     repo = CensusRepository(conn)
 
     censuses, total = repo.list(
@@ -273,9 +274,12 @@ async def list_censuses(
     },
 )
 @limiter.limit(RATE_LIMIT)
-async def get_census(request: Request, census_id: str) -> CensusDetail:
+async def get_census(
+    request: Request,
+    census_id: str,
+    conn: Annotated[duckdb.DuckDBPyConnection, Depends(get_database)],
+) -> CensusDetail:
     """Get census details with import metadata and analysis info."""
-    conn = get_db()
     census_repo = CensusRepository(conn)
     import_metadata_repo = ImportMetadataRepository(conn)
 
@@ -331,9 +335,12 @@ async def get_census(request: Request, census_id: str) -> CensusDetail:
     },
 )
 @limiter.limit(RATE_LIMIT)
-async def get_census_metadata(request: Request, census_id: str) -> ImportMetadataResponse:
+async def get_census_metadata(
+    request: Request,
+    census_id: str,
+    conn: Annotated[duckdb.DuckDBPyConnection, Depends(get_database)],
+) -> ImportMetadataResponse:
     """Get import metadata for a census."""
-    conn = get_db()
     census_repo = CensusRepository(conn)
     import_metadata_repo = ImportMetadataRepository(conn)
 
@@ -376,13 +383,13 @@ async def get_census_metadata(request: Request, census_id: str) -> ImportMetadat
 async def list_census_participants(
     request: Request,
     census_id: str,
+    conn: Annotated[duckdb.DuckDBPyConnection, Depends(get_database)],
     hce_only: bool = Query(False, description="Return only HCE participants"),
     nhce_only: bool = Query(False, description="Return only NHCE participants"),
     limit: int = Query(100, ge=1, le=500, description="Maximum results to return"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
 ) -> ParticipantListResponse:
     """List participants for a census with filtering."""
-    conn = get_db()
     census_repo = CensusRepository(conn)
     participant_repo = ParticipantRepository(conn)
 
@@ -433,9 +440,13 @@ async def list_census_participants(
     },
 )
 @limiter.limit(RATE_LIMIT)
-async def delete_census(request: Request, census_id: str, response: Response) -> None:
+async def delete_census(
+    request: Request,
+    census_id: str,
+    response: Response,
+    conn: Annotated[duckdb.DuckDBPyConnection, Depends(get_database)],
+) -> None:
     """Delete census with warning for associated analyses."""
-    conn = get_db()
     repo = CensusRepository(conn)
 
     # Check if census exists
@@ -489,6 +500,7 @@ async def update_census_metadata(
     request: Request,
     census_id: str,
     update: CensusUpdateRequest,
+    conn: Annotated[duckdb.DuckDBPyConnection, Depends(get_database)],
 ) -> Census:
     """
     Update census metadata (name and client_name only).
@@ -496,7 +508,6 @@ async def update_census_metadata(
     T032: Create PATCH endpoint for metadata updates
     T033: Validate only name and client_name can be modified
     """
-    conn = get_db()
     repo = CensusRepository(conn)
 
     # Check if census exists
