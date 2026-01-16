@@ -975,10 +975,11 @@ def export_csv(workspace_id: UUID, run_id: UUID):
             detail={"error": "no_results", "message": "Run has no results"},
         )
 
-    # Get census from DuckDB
+    # Get census from DuckDB (list returns newest first)
     conn = get_db(str(workspace_id))
     census_repo = CensusRepository(conn)
-    census = census_repo.get_latest()
+    censuses, _ = census_repo.list(limit=1)
+    census = censuses[0] if censuses else None
 
     # Build CSV content
     lines = []
@@ -1071,10 +1072,11 @@ def export_pdf(workspace_id: UUID, run_id: UUID):
             detail={"error": "no_results", "message": "Run has no results"},
         )
 
-    # Get census from DuckDB
+    # Get census from DuckDB (list returns newest first)
     conn = get_db(str(workspace_id))
     census_repo = CensusRepository(conn)
-    census = census_repo.get_latest()
+    censuses, _ = census_repo.list(limit=1)
+    census = censuses[0] if censuses else None
 
     if census:
         census_dict = {
