@@ -12,6 +12,8 @@ Auto-generated from all feature plans. Last updated: 2026-01-16
 - Python 3.11+ (backend), TypeScript 5.7+ (frontend) + FastAPI >=0.104.0, Pydantic >=2.0.0, DuckDB >=1.0.0, pandas >=2.0.0, React 19, React Router 7, Vite 6 (014-normalize-rate-inputs)
 - Python 3.11+ + FastAPI 0.104+, pandas 2.0+, pydantic 2.0+, reportlab 4.0+ (015-pdf-export-counts-fix)
 - DuckDB 1.0+ (workspace-isolated databases at `~/.acp-analyzer/workspaces/{uuid}/workspace.duckdb`) (015-pdf-export-counts-fix)
+- Python 3.11+ (backend), TypeScript 5.7+ (frontend) + FastAPI 0.104+, React 19, Vite 6 (016-fix-export-filenames)
+- N/A (bug fix, no storage changes) (016-fix-export-filenames)
 
 ## Project Structure
 
@@ -41,9 +43,9 @@ ruff check .                       # Lint code
 Python 3.11+: Follow standard conventions
 
 ## Recent Changes
+- 016-fix-export-filenames: Added Python 3.11+ (backend), TypeScript 5.7+ (frontend) + FastAPI 0.104+, React 19, Vite 6
 - 015-pdf-export-counts-fix: Added Python 3.11+ + FastAPI 0.104+, pandas 2.0+, pydantic 2.0+, reportlab 4.0+
 - 014-normalize-rate-inputs: Added Python 3.11+ (backend), TypeScript 5.7+ (frontend) + FastAPI >=0.104.0, Pydantic >=2.0.0, DuckDB >=1.0.0, pandas >=2.0.0, React 19, React Router 7, Vite 6
-- 013-src-to-backend-migration: Added Python 3.11+ + FastAPI 0.104+, pandas 2.0+, pydantic 2.0+, DuckDB 1.0+, NumPy 1.24+
 
 ## Database Notes (DuckDB Migration)
 - **No more SQLite**: The codebase now uses DuckDB exclusively for all data persistence
