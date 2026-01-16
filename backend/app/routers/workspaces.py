@@ -382,9 +382,9 @@ def create_run(workspace_id: UUID, data: RunCreate) -> Run:
             "not_eligible_during_year_count": not_eligible_during_year_count,
         }
 
-        # Convert rates from percentages to fractions (e.g., 20% -> 0.20)
-        adoption_fractions = [r / 100.0 for r in data.adoption_rates]
-        contribution_fractions = [r / 100.0 for r in data.contribution_rates]
+        # Rates are already in decimal format from frontend (e.g., 0.20 for 20%)
+        adoption_fractions = list(data.adoption_rates)
+        contribution_fractions = list(data.contribution_rates)
 
         # Run grid analysis on includable participants only
         grid_result = run_grid_scenarios_v2(
