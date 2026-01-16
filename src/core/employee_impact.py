@@ -81,6 +81,8 @@ class EmployeeImpactService:
         excluded_participants_list: list[ExcludedParticipant] = []
         terminated_before_entry_count = 0
         not_eligible_during_year_count = 0
+        missing_dob_count = 0
+        missing_hire_date_count = 0
 
         for participant in participants:
             inclusion = determine_acp_inclusion(
@@ -99,6 +101,10 @@ class EmployeeImpactService:
                     terminated_before_entry_count += 1
                 elif reason == "NOT_ELIGIBLE_DURING_YEAR":
                     not_eligible_during_year_count += 1
+                elif reason == "MISSING_DOB":
+                    missing_dob_count += 1
+                elif reason == "MISSING_HIRE_DATE":
+                    missing_hire_date_count += 1
 
                 # Build excluded participant record
                 excluded_participants_list.append(
@@ -117,6 +123,8 @@ class EmployeeImpactService:
             total_excluded=excluded_count,
             terminated_before_entry_count=terminated_before_entry_count,
             not_eligible_during_year_count=not_eligible_during_year_count,
+            missing_dob_count=missing_dob_count,
+            missing_hire_date_count=missing_hire_date_count,
         )
 
         # 3. Get §415(c) limit for this plan year

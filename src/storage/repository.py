@@ -14,7 +14,6 @@ import pandas as pd
 
 from src.core.constants import SYSTEM_VERSION
 from src.core.acp_eligibility import (
-    ACPInclusionError,
     determine_acp_inclusion,
     plan_year_bounds,
 )
@@ -284,22 +283,27 @@ class ParticipantRepository:
         calculation_dicts: list[dict] = []
 
         for participant in participants:
-            try:
-                inclusion = determine_acp_inclusion(
-                    dob=participant.dob,
-                    hire_date=participant.hire_date,
-                    termination_date=participant.termination_date,
-                    plan_year_start=plan_year_start,
-                    plan_year_end=plan_year_end,
-                )
-            except ACPInclusionError as exc:
-                raise ACPInclusionError(
-                    f"Participant {participant.internal_id}: {exc}"
-                ) from exc
+            # T016: No longer raises - returns error result for missing data
+            inclusion = determine_acp_inclusion(
+                dob=participant.dob,
+                hire_date=participant.hire_date,
+                termination_date=participant.termination_date,
+                plan_year_start=plan_year_start,
+                plan_year_end=plan_year_end,
+            )
 
             participant_dict = participant.to_calculation_dict()
-            participant_dict["eligibility_date"] = inclusion.eligibility_date.isoformat()
-            participant_dict["entry_date"] = inclusion.entry_date.isoformat()
+            # Handle None dates for MISSING_DOB/MISSING_HIRE_DATE cases
+            participant_dict["eligibility_date"] = (
+                inclusion.eligibility_date.isoformat()
+                if inclusion.eligibility_date is not None
+                else None
+            )
+            participant_dict["entry_date"] = (
+                inclusion.entry_date.isoformat()
+                if inclusion.entry_date is not None
+                else None
+            )
             participant_dict["acp_includable"] = inclusion.acp_includable
             participant_dict["acp_exclusion_reason"] = inclusion.acp_exclusion_reason
 

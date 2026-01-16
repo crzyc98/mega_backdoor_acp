@@ -10,7 +10,12 @@ from datetime import date, datetime
 from typing import Literal
 
 
-ACPExclusionReason = Literal["TERMINATED_BEFORE_ENTRY", "NOT_ELIGIBLE_DURING_YEAR"]
+ACPExclusionReason = Literal[
+    "TERMINATED_BEFORE_ENTRY",
+    "NOT_ELIGIBLE_DURING_YEAR",
+    "MISSING_DOB",
+    "MISSING_HIRE_DATE",
+]
 
 
 class ACPInclusionError(ValueError):
@@ -21,8 +26,8 @@ class ACPInclusionError(ValueError):
 class ACPInclusionResult:
     """Computed ACP eligibility fields for a participant."""
 
-    eligibility_date: date
-    entry_date: date
+    eligibility_date: date | None  # None if data error (MISSING_DOB, MISSING_HIRE_DATE)
+    entry_date: date | None  # None if data error (MISSING_DOB, MISSING_HIRE_DATE)
     acp_includable: bool
     acp_exclusion_reason: ACPExclusionReason | None
 
@@ -98,9 +103,32 @@ def determine_acp_inclusion(
 ) -> ACPInclusionResult:
     """
     Determine ACP inclusion using IRC 401(m) permissive disaggregation logic.
+
+    Returns an ACPInclusionResult with acp_includable=False and appropriate
+    exclusion reason if required data is missing (DOB or hire_date).
     """
-    dob_date = _parse_date_value(dob, "DOB")
-    hire_date_value = _parse_date_value(hire_date, "hire date")
+    # T014: Handle missing DOB gracefully
+    try:
+        dob_date = _parse_date_value(dob, "DOB")
+    except ACPInclusionError:
+        return ACPInclusionResult(
+            eligibility_date=None,
+            entry_date=None,
+            acp_includable=False,
+            acp_exclusion_reason="MISSING_DOB",
+        )
+
+    # T015: Handle missing hire_date gracefully
+    try:
+        hire_date_value = _parse_date_value(hire_date, "hire date")
+    except ACPInclusionError:
+        return ACPInclusionResult(
+            eligibility_date=None,
+            entry_date=None,
+            acp_includable=False,
+            acp_exclusion_reason="MISSING_HIRE_DATE",
+        )
+
     term_date = None
     if termination_date is not None and str(termination_date).strip():
         term_date = _parse_date_value(termination_date, "termination date")

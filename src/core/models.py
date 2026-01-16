@@ -46,6 +46,8 @@ class ACPExclusionReason(str, Enum):
     """Reason a participant was excluded from ACP calculations."""
     TERMINATED_BEFORE_ENTRY = "TERMINATED_BEFORE_ENTRY"
     NOT_ELIGIBLE_DURING_YEAR = "NOT_ELIGIBLE_DURING_YEAR"
+    MISSING_DOB = "MISSING_DOB"
+    MISSING_HIRE_DATE = "MISSING_HIRE_DATE"
 
 
 # Exclusion tracking models
@@ -58,15 +60,24 @@ class ExclusionInfo(BaseModel):
     not_eligible_during_year_count: int = Field(
         ..., ge=0, description="Excluded: not eligible during plan year"
     )
+    missing_dob_count: int = Field(
+        0, ge=0, description="Excluded: missing date of birth"
+    )
+    missing_hire_date_count: int = Field(
+        0, ge=0, description="Excluded: missing hire date"
+    )
 
 
 class ExcludedParticipant(BaseModel):
     """Details of an excluded participant for export/display."""
     employee_id: str = Field(..., description="Participant employee ID")
     is_hce: bool = Field(..., description="Whether participant is HCE")
-    exclusion_reason: Literal["TERMINATED_BEFORE_ENTRY", "NOT_ELIGIBLE_DURING_YEAR"] = Field(
-        ..., description="Reason for exclusion"
-    )
+    exclusion_reason: Literal[
+        "TERMINATED_BEFORE_ENTRY",
+        "NOT_ELIGIBLE_DURING_YEAR",
+        "MISSING_DOB",
+        "MISSING_HIRE_DATE",
+    ] = Field(..., description="Reason for exclusion")
     eligibility_date: str | None = Field(None, description="Calculated eligibility date")
     entry_date: str | None = Field(None, description="Calculated entry date")
     termination_date: str | None = Field(None, description="Termination date if applicable")
