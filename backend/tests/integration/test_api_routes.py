@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.routers.main import app
-from app.storage.database import reset_database, get_database_path
+from app.storage.database import reset_database
 
 
 @pytest.fixture(scope="function", autouse=True)

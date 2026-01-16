@@ -9,7 +9,7 @@ from decimal import Decimal
 
 import pytest
 
-from src.core.export import (
+from backend.app.services.export import (
     format_csv_export,
     generate_pdf_report,
     add_formula_strings,

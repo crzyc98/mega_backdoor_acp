@@ -6,8 +6,8 @@ T057-T059: Tests for include_debug flag and debug_details generation.
 
 import pytest
 
-from src.core.scenario_runner import run_single_scenario_v2
-from src.core.models import ScenarioStatus, DebugDetails, ParticipantContribution, IntermediateValues
+from backend.app.services.scenario_runner import run_single_scenario_v2
+from backend.app.services.models import ScenarioStatus, DebugDetails, ParticipantContribution, IntermediateValues
 
 
 class TestDebugModeEnabled:

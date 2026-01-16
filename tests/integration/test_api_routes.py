@@ -11,14 +11,14 @@ from pathlib import Path
 import tempfile
 from fastapi.testclient import TestClient
 
-from src.api.main import app
-from src.storage.database import reset_database, get_workspace_db_path, close_db
+from backend.app.routers.main import app
+from backend.app.storage.database import reset_database, get_workspace_db_path, close_db
 
 
 @pytest.fixture(scope="function", autouse=True)
 def reset_db():
     """Reset database before each test using a test workspace."""
-    from src.storage import database
+    from backend.app.storage import database
 
     # Use a unique test workspace for each test
     test_workspace_id = f"test-{uuid.uuid4()}"
@@ -27,7 +27,7 @@ def reset_db():
     database.close_db()
 
     # Initialize fresh database for test workspace
-    from src.storage.database import get_db, init_database, create_connection
+    from backend.app.storage.database import get_db, init_database, create_connection
 
     db_path = get_workspace_db_path(test_workspace_id)
     conn = create_connection(db_path)

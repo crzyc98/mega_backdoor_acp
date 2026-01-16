@@ -7,7 +7,7 @@ Tests seeded random HCE selection for reproducible analysis.
 import pytest
 import numpy as np
 
-from src.core.scenario_runner import (
+from backend.app.services.scenario_runner import (
     select_adopting_hces,
     run_single_scenario,
     run_grid_scenarios,
@@ -316,8 +316,8 @@ class TestScenarioResultProperties:
 # ============================================================================
 
 from decimal import Decimal
-from src.core.scenario_runner import classify_status, run_single_scenario_v2
-from src.core.models import ScenarioStatus, LimitingBound, ScenarioResult as ScenarioResultV2
+from backend.app.services.scenario_runner import classify_status, run_single_scenario_v2
+from backend.app.services.models import ScenarioStatus, LimitingBound, ScenarioResult as ScenarioResultV2
 
 
 class TestClassifyStatus:
@@ -632,8 +632,8 @@ class TestGridScenariosV2:
 
     def test_grid_v2_returns_grid_result(self, standard_participants):
         """run_grid_scenarios_v2 should return GridResult model."""
-        from src.core.scenario_runner import run_grid_scenarios_v2
-        from src.core.models import GridResult
+        from backend.app.services.scenario_runner import run_grid_scenarios_v2
+        from backend.app.services.models import GridResult
 
         result = run_grid_scenarios_v2(
             participants=standard_participants,
@@ -649,7 +649,7 @@ class TestGridScenariosV2:
 
     def test_grid_v2_correct_scenario_count(self, standard_participants):
         """Grid should return correct number of scenarios."""
-        from src.core.scenario_runner import run_grid_scenarios_v2
+        from backend.app.services.scenario_runner import run_grid_scenarios_v2
 
         result = run_grid_scenarios_v2(
             participants=standard_participants,
@@ -664,7 +664,7 @@ class TestGridScenariosV2:
 
     def test_grid_v2_all_combinations(self, standard_participants):
         """Grid should include all adoption x contribution combinations."""
-        from src.core.scenario_runner import run_grid_scenarios_v2
+        from backend.app.services.scenario_runner import run_grid_scenarios_v2
 
         adoption_rates = [0.25, 0.5, 0.75]
         contribution_rates = [0.04, 0.06]
@@ -686,7 +686,7 @@ class TestGridScenariosV2:
 
     def test_grid_v2_summary_counts(self, standard_participants):
         """Grid summary should have correct status counts."""
-        from src.core.scenario_runner import run_grid_scenarios_v2
+        from backend.app.services.scenario_runner import run_grid_scenarios_v2
 
         result = run_grid_scenarios_v2(
             participants=standard_participants,
@@ -710,7 +710,7 @@ class TestGridDeterminismV2:
 
     def test_grid_v2_same_seed_identical_results(self):
         """Same seed should produce identical grid results."""
-        from src.core.scenario_runner import run_grid_scenarios_v2
+        from backend.app.services.scenario_runner import run_grid_scenarios_v2
 
         participants = [
             {"internal_id": "nhce1", "match_cents": 150000, "after_tax_cents": 0, "compensation_cents": 5000000, "is_hce": False},
@@ -743,7 +743,7 @@ class TestGridDeterminismV2:
 
     def test_grid_v2_seed_used_consistent(self):
         """All scenarios in grid should use the same base seed."""
-        from src.core.scenario_runner import run_grid_scenarios_v2
+        from backend.app.services.scenario_runner import run_grid_scenarios_v2
 
         participants = [
             {"internal_id": "nhce1", "match_cents": 150000, "after_tax_cents": 0, "compensation_cents": 5000000, "is_hce": False},
@@ -814,7 +814,7 @@ class TestPerformanceBenchmarks:
     def test_grid_100_scenarios_performance(self, large_census):
         """T066: 100-scenario grid should complete in <5s for 10K participants."""
         import time
-        from src.core.scenario_runner import run_grid_scenarios_v2
+        from backend.app.services.scenario_runner import run_grid_scenarios_v2
 
         # 10 adoption rates x 10 contribution rates = 100 scenarios
         adoption_rates = [i * 0.1 for i in range(1, 11)]  # 0.1 to 1.0
