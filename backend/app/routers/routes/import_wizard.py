@@ -1007,11 +1007,22 @@ async def execute_import(
                 # Apply column mapping to transform raw data
                 mapping = session.column_mapping or {}
 
+                # DEBUG: Log mapping and columns for troubleshooting
+                print(f"DEBUG import_wizard: Column mapping = {mapping}")
+                print(f"DEBUG import_wizard: DataFrame columns = {list(df.columns)}")
+                for field, col in mapping.items():
+                    if col and col not in df.columns:
+                        print(f"DEBUG import_wizard: WARNING - mapped column '{col}' for field '{field}' NOT FOUND in DataFrame!")
+                    elif col:
+                        print(f"DEBUG import_wizard: OK - '{field}' -> '{col}' (sample: {df[col].iloc[0] if len(df) > 0 else 'empty'})")
+
                 # Create processed dataframe with expected columns
                 processed_df = pd.DataFrame()
 
                 def get_numeric(col: str | None) -> pd.Series:
                     if not col or col not in df.columns:
+                        if col:
+                            print(f"DEBUG get_numeric: Column '{col}' not found in df.columns")
                         return pd.Series([0] * len(df))
                     cleaned = (
                         df[col]
