@@ -1149,16 +1149,33 @@ async def execute_import(
                 census_repo.save(census_model)
 
                 # Create Participant records in DuckDB
-                from datetime import date as date_type
+                from datetime import date as date_type, datetime as datetime_type
+
+                # Get the date format from session (set by user in wizard)
+                date_format = session.date_format or "%Y-%m-%d"
 
                 def parse_date_str(date_str: str) -> date_type | None:
-                    """Parse date string to date object, return None if invalid."""
+                    """Parse date string to date object using session's date format."""
                     if not date_str or not date_str.strip():
                         return None
+                    date_str = date_str.strip()
+                    # Try the user-selected format first
                     try:
-                        return date_type.fromisoformat(date_str.strip())
+                        return datetime_type.strptime(date_str, date_format).date()
                     except ValueError:
-                        return None
+                        pass
+                    # Fall back to ISO format
+                    try:
+                        return date_type.fromisoformat(date_str)
+                    except ValueError:
+                        pass
+                    # Try common US formats as fallback
+                    for fmt in ["%m/%d/%Y", "%m-%d-%Y", "%m/%d/%y", "%Y/%m/%d"]:
+                        try:
+                            return datetime_type.strptime(date_str, fmt).date()
+                        except ValueError:
+                            continue
+                    return None
 
                 participant_models = []
                 for idx, row in processed_df.iterrows():
