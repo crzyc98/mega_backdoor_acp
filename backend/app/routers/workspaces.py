@@ -1072,14 +1072,41 @@ def export_pdf(workspace_id: UUID, run_id: UUID):
     # Get census summary for metadata
     census_summary = storage.get_census_summary(workspace_id)
 
+    # If census_summary is None, try to count from census data file
+    participant_count = 0
+    hce_count = 0
+    nhce_count = 0
+    plan_year = 2024  # Default
+
+    if census_summary:
+        participant_count = census_summary.participant_count
+        hce_count = census_summary.hce_count
+        nhce_count = census_summary.nhce_count
+        plan_year = census_summary.plan_year
+    else:
+        # Fallback: read census CSV and count participants
+        census_path = storage.get_census_data_path(workspace_id)
+        if census_path and census_path.exists():
+            import pandas as pd
+            try:
+                df = pd.read_csv(census_path)
+                participant_count = len(df)
+                # Check for is_hce column (may be boolean or 0/1)
+                if 'is_hce' in df.columns:
+                    hce_count = int(df['is_hce'].sum())
+                    nhce_count = participant_count - hce_count
+                # Check for plan_year in workspace metadata or use default
+            except Exception:
+                pass  # Use defaults if CSV parsing fails
+
     # Build census dict for export function
     census_dict = {
         "id": census_summary.id if census_summary else str(workspace_id),
         "name": workspace.name,
-        "plan_year": census_summary.plan_year if census_summary else run.seed,  # Use seed as fallback hint
-        "participant_count": census_summary.participant_count if census_summary else 0,
-        "hce_count": census_summary.hce_count if census_summary else 0,
-        "nhce_count": census_summary.nhce_count if census_summary else 0,
+        "plan_year": plan_year,
+        "participant_count": participant_count,
+        "hce_count": hce_count,
+        "nhce_count": nhce_count,
     }
 
     # Get excluded count from results summary
