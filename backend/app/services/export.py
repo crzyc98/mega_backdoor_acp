@@ -35,6 +35,9 @@ def format_csv_export(
     census: dict,
     results: list[dict],
     seed: int | None = None,
+    included_hce_count: int | None = None,
+    included_nhce_count: int | None = None,
+    excluded_count: int | None = None,
 ) -> str:
     """
     Format analysis results as CSV with audit metadata header.
@@ -43,18 +46,30 @@ def format_csv_export(
         census: Census metadata dictionary
         results: List of analysis result dictionaries
         seed: Optional seed value (for grid analysis)
+        included_hce_count: Optional post-exclusion HCE count
+        included_nhce_count: Optional post-exclusion NHCE count
+        excluded_count: Optional number of excluded participants
 
     Returns:
         CSV string with header and data
     """
     lines = []
 
+    # Use provided post-exclusion counts or fall back to census values
+    display_hce = included_hce_count if included_hce_count is not None else census['hce_count']
+    display_nhce = included_nhce_count if included_nhce_count is not None else census['nhce_count']
+    display_excluded = excluded_count if excluded_count is not None else 0
+
     # Audit metadata header
     lines.append(f"# ACP Sensitivity Analysis Export")
     lines.append(f"# Census ID: {census['id']}")
     lines.append(f"# Census Name: {census['name']}")
     lines.append(f"# Plan Year: {census['plan_year']}")
-    lines.append(f"# Participants: {census['participant_count']} (HCE: {census['hce_count']}, NHCE: {census['nhce_count']})")
+    lines.append(f"# Total Participants: {census['participant_count']}")
+    lines.append(f"# Eligible HCEs: {display_hce}")
+    lines.append(f"# Eligible NHCEs: {display_nhce}")
+    if display_excluded > 0:
+        lines.append(f"# Excluded: {display_excluded}")
     lines.append(f"# Generated: {datetime.utcnow().isoformat()}Z")
     lines.append(f"# System Version: {SYSTEM_VERSION}")
     if seed is not None:
@@ -113,6 +128,8 @@ def generate_pdf_report(
     results: list[dict],
     grid_summary: dict | None = None,
     excluded_count: int = 0,
+    hce_count: int | None = None,
+    nhce_count: int | None = None,
 ) -> bytes:
     """
     Generate PDF report for analysis results.
@@ -122,10 +139,15 @@ def generate_pdf_report(
         results: List of analysis result dictionaries
         grid_summary: Optional grid analysis summary
         excluded_count: Number of participants excluded from ACP test
+        hce_count: Optional post-exclusion HCE count (overrides census value)
+        nhce_count: Optional post-exclusion NHCE count (overrides census value)
 
     Returns:
         PDF file bytes
     """
+    # Use provided post-exclusion counts or fall back to census values
+    display_hce_count = hce_count if hce_count is not None else census['hce_count']
+    display_nhce_count = nhce_count if nhce_count is not None else census['nhce_count']
     try:
         from reportlab.lib import colors
         from reportlab.lib.colors import HexColor
@@ -194,12 +216,12 @@ def generate_pdf_report(
     # Census Summary - styled like frontend stat boxes
     elements.append(Paragraph("Census Summary", heading_style))
 
-    # Stats row with colored backgrounds
+    # Stats row with colored backgrounds - use post-exclusion counts when provided
     stats_data = [[
         f"Plan Year\n{census['plan_year']}",
         f"Total Participants\n{census['participant_count']:,}",
-        f"HCEs\n{census['hce_count']:,}",
-        f"NHCEs\n{census['nhce_count']:,}",
+        f"Eligible HCEs\n{display_hce_count:,}",
+        f"Eligible NHCEs\n{display_nhce_count:,}",
     ]]
     if excluded_count > 0:
         stats_data[0].append(f"Excluded\n{excluded_count:,}")

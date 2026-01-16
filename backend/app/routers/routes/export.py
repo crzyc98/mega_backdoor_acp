@@ -15,17 +15,77 @@ from slowapi.util import get_remote_address
 
 from app.routers.dependencies import get_workspace_id_from_header
 from app.routers.schemas import Error
+from app.services.acp_eligibility import determine_acp_inclusion, plan_year_bounds
 from app.services.constants import RATE_LIMIT
 from app.services.export import format_csv_export, generate_pdf_report
 from app.storage.database import get_db
+from app.storage.models import Participant
 from app.storage.repository import (
     AnalysisResultRepository,
     CensusRepository,
     GridAnalysisRepository,
+    ParticipantRepository,
 )
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
+
+
+def compute_post_exclusion_counts(
+    plan_year: int,
+    participants: list[Participant],
+) -> tuple[int, int, int]:
+    """
+    Compute post-eligibility filter counts for export.
+
+    Applies ACP eligibility filtering to determine which participants
+    are includable vs excluded for the given plan year.
+
+    Args:
+        plan_year: The plan year for eligibility determination
+        participants: List of Participant objects from the census
+
+    Returns:
+        Tuple of (included_hce_count, included_nhce_count, excluded_count)
+    """
+    plan_year_start, plan_year_end = plan_year_bounds(plan_year)
+
+    included_hce_count = 0
+    included_nhce_count = 0
+    excluded_count = 0
+
+    for p in participants:
+        # Skip eligibility check if missing required dates (fail open)
+        if p.dob is None or p.hire_date is None:
+            if p.is_hce:
+                included_hce_count += 1
+            else:
+                included_nhce_count += 1
+            continue
+
+        try:
+            result = determine_acp_inclusion(
+                dob=p.dob,
+                hire_date=p.hire_date,
+                termination_date=p.termination_date,
+                plan_year_start=plan_year_start,
+                plan_year_end=plan_year_end,
+            )
+            if result.acp_includable:
+                if p.is_hce:
+                    included_hce_count += 1
+                else:
+                    included_nhce_count += 1
+            else:
+                excluded_count += 1
+        except Exception:
+            # On any error, include participant (fail open)
+            if p.is_hce:
+                included_hce_count += 1
+            else:
+                included_nhce_count += 1
+
+    return included_hce_count, included_nhce_count, excluded_count
 
 
 @router.get(
@@ -105,8 +165,22 @@ async def export_csv(
         for r in results
     ]
 
-    # Generate CSV
-    csv_content = format_csv_export(census_dict, results_dicts, seed)
+    # Compute post-exclusion counts for accurate reporting
+    participant_repo = ParticipantRepository(conn)
+    participants = participant_repo.get_by_census(census_id)
+    included_hce_count, included_nhce_count, excluded_count = compute_post_exclusion_counts(
+        census.plan_year, participants
+    )
+
+    # Generate CSV with post-exclusion counts
+    csv_content = format_csv_export(
+        census_dict,
+        results_dicts,
+        seed,
+        included_hce_count=included_hce_count,
+        included_nhce_count=included_nhce_count,
+        excluded_count=excluded_count,
+    )
 
     # Generate filename
     date_str = datetime.utcnow().strftime("%Y-%m-%d")
@@ -204,8 +278,22 @@ async def export_pdf(
                 "pass_rate": pass_count / len(results) * 100 if results else 0,
             }
 
-    # Generate PDF (excluded_count not available in legacy route)
-    pdf_content = generate_pdf_report(census_dict, results_dicts, grid_summary, excluded_count=0)
+    # Compute post-exclusion counts for accurate reporting
+    participant_repo = ParticipantRepository(conn)
+    participants = participant_repo.get_by_census(census_id)
+    included_hce_count, included_nhce_count, excluded_count = compute_post_exclusion_counts(
+        census.plan_year, participants
+    )
+
+    # Generate PDF with post-exclusion counts
+    pdf_content = generate_pdf_report(
+        census_dict,
+        results_dicts,
+        grid_summary,
+        excluded_count=excluded_count,
+        hce_count=included_hce_count,
+        nhce_count=included_nhce_count,
+    )
 
     # Generate filename
     date_str = datetime.utcnow().strftime("%Y-%m-%d")

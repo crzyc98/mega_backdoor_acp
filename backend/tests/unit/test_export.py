@@ -74,7 +74,9 @@ class TestCSVExport:
         assert f"# Census ID: {sample_census['id']}" in csv_output
         assert f"# Census Name: {sample_census['name']}" in csv_output
         assert f"# Plan Year: {sample_census['plan_year']}" in csv_output
-        assert "# Participants: 100 (HCE: 20, NHCE: 80)" in csv_output
+        assert "# Total Participants: 100" in csv_output
+        assert "# Eligible HCEs: 20" in csv_output
+        assert "# Eligible NHCEs: 80" in csv_output
         assert "# Generated:" in csv_output
         assert "# System Version:" in csv_output
 
@@ -209,6 +211,102 @@ class TestPDFExport:
         # Should still generate valid PDF
         assert isinstance(pdf_output, bytes)
         assert pdf_output[:4] == b"%PDF"
+
+
+class TestPostExclusionCounts:
+    """Tests for post-exclusion count functionality in exports."""
+
+    def test_csv_export_with_post_exclusion_counts(
+        self, sample_census: dict, sample_results: list[dict]
+    ) -> None:
+        """T010: CSV export uses provided post-exclusion counts."""
+        csv_output = format_csv_export(
+            sample_census,
+            sample_results,
+            included_hce_count=15,
+            included_nhce_count=75,
+            excluded_count=10,
+        )
+
+        # Should show post-exclusion counts instead of raw census values
+        assert "# Eligible HCEs: 15" in csv_output
+        assert "# Eligible NHCEs: 75" in csv_output
+        assert "# Excluded: 10" in csv_output
+        # Total participants should still show raw census count
+        assert "# Total Participants: 100" in csv_output
+
+    def test_csv_export_no_excluded_line_when_zero(
+        self, sample_census: dict, sample_results: list[dict]
+    ) -> None:
+        """CSV omits Excluded line when excluded_count is 0."""
+        csv_output = format_csv_export(
+            sample_census,
+            sample_results,
+            included_hce_count=20,
+            included_nhce_count=80,
+            excluded_count=0,
+        )
+
+        assert "# Excluded:" not in csv_output
+
+    def test_pdf_export_with_post_exclusion_counts(
+        self, sample_census: dict, sample_results: list[dict]
+    ) -> None:
+        """T006: PDF export uses provided post-exclusion counts."""
+        pdf_output = generate_pdf_report(
+            sample_census,
+            sample_results,
+            excluded_count=10,
+            hce_count=15,
+            nhce_count=75,
+        )
+
+        # Should generate valid PDF
+        assert isinstance(pdf_output, bytes)
+        assert pdf_output[:4] == b"%PDF"
+
+    def test_csv_export_falls_back_to_census_counts(
+        self, sample_census: dict, sample_results: list[dict]
+    ) -> None:
+        """CSV falls back to census counts when post-exclusion counts not provided."""
+        csv_output = format_csv_export(sample_census, sample_results)
+
+        # Should use census values
+        assert "# Eligible HCEs: 20" in csv_output
+        assert "# Eligible NHCEs: 80" in csv_output
+
+    def test_csv_export_all_participants_excluded(
+        self, sample_census: dict, sample_results: list[dict]
+    ) -> None:
+        """T013: CSV handles edge case when all participants are excluded."""
+        csv_output = format_csv_export(
+            sample_census,
+            sample_results,
+            included_hce_count=0,
+            included_nhce_count=0,
+            excluded_count=100,
+        )
+
+        assert "# Eligible HCEs: 0" in csv_output
+        assert "# Eligible NHCEs: 0" in csv_output
+        assert "# Excluded: 100" in csv_output
+
+    def test_csv_export_no_exclusions(
+        self, sample_census: dict, sample_results: list[dict]
+    ) -> None:
+        """T014: CSV handles case when no participants are excluded."""
+        csv_output = format_csv_export(
+            sample_census,
+            sample_results,
+            included_hce_count=20,
+            included_nhce_count=80,
+            excluded_count=0,
+        )
+
+        # Counts should match raw census (post-exclusion = pre-exclusion)
+        assert "# Eligible HCEs: 20" in csv_output
+        assert "# Eligible NHCEs: 80" in csv_output
+        assert "# Excluded:" not in csv_output
 
 
 class TestFormulaStrings:
