@@ -34,8 +34,10 @@ ERROR_EMPTY_CENSUS = "ACP test cannot be calculated: census is empty"
 DEFAULT_PLAN_YEAR = 2025
 DEFAULT_RANDOM_SEED = 42
 
-# Database configuration
-DATABASE_PATH = Path("data/acp_analyzer.db")
+# Workspace database configuration
+# Each workspace has its own DuckDB database file
+WORKSPACE_BASE_DIR = Path.home() / ".acp-analyzer" / "workspaces"
+WORKSPACE_DB_FILENAME = "workspace.duckdb"
 
 # Rate limiting
 RATE_LIMIT = "60/minute"

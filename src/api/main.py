@@ -14,7 +14,6 @@ from slowapi.util import get_remote_address
 
 from src.api.schemas import Error, HealthResponse
 from src.core.constants import RATE_LIMIT, SYSTEM_VERSION
-from src.storage.database import init_database
 
 # Initialize rate limiter
 limiter = Limiter(key_func=get_remote_address)
@@ -45,12 +44,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("startup")
-async def startup_event() -> None:
-    """Initialize database on startup."""
-    init_database()
 
 
 @app.get(

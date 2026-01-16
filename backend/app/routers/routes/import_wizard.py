@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Literal
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile
 
 from app.models.census import CensusSummary as CensusSummaryModel
 from app.storage.workspace_storage import get_workspace_storage
@@ -95,27 +95,42 @@ MAX_FILE_SIZE = 50 * 1024 * 1024
 UPLOAD_DIR = Path(tempfile.gettempdir()) / "acp_imports"
 
 
-def get_session_repo():
+def get_workspace_id_from_header(
+    x_workspace_id: str = Header(..., alias="X-Workspace-ID")
+) -> str:
+    """Extract workspace ID from request header."""
+    return x_workspace_id
+
+
+def get_session_repo(
+    workspace_id: str = Depends(get_workspace_id_from_header),
+) -> ImportSessionRepository:
     """Dependency for ImportSessionRepository."""
-    conn = get_db()
+    conn = get_db(workspace_id)
     return ImportSessionRepository(conn)
 
 
-def get_profile_repo():
+def get_profile_repo(
+    workspace_id: str = Depends(get_workspace_id_from_header),
+) -> MappingProfileRepository:
     """Dependency for MappingProfileRepository."""
-    conn = get_db()
+    conn = get_db(workspace_id)
     return MappingProfileRepository(conn)
 
 
-def get_issue_repo():
+def get_issue_repo(
+    workspace_id: str = Depends(get_workspace_id_from_header),
+) -> ValidationIssueRepository:
     """Dependency for ValidationIssueRepository."""
-    conn = get_db()
+    conn = get_db(workspace_id)
     return ValidationIssueRepository(conn)
 
 
-def get_log_repo():
+def get_log_repo(
+    workspace_id: str = Depends(get_workspace_id_from_header),
+) -> ImportLogRepository:
     """Dependency for ImportLogRepository."""
-    conn = get_db()
+    conn = get_db(workspace_id)
     return ImportLogRepository(conn)
 
 
@@ -145,6 +160,7 @@ def get_session_or_404(
 @router.post("/sessions", status_code=201, response_model=ImportSessionSchema)
 async def create_import_session(
     file: UploadFile = File(...),
+    workspace_id: str = Depends(get_workspace_id_from_header),
     repo: ImportSessionRepository = Depends(get_session_repo),
 ) -> ImportSessionSchema:
     """
@@ -184,6 +200,7 @@ async def create_import_session(
     )
     session.headers = headers
     session.row_count = total_rows
+    session.workspace_id = workspace_id  # CRITICAL: Set workspace_id for census storage
 
     # Save file to temp directory
     ensure_upload_dir()
@@ -217,7 +234,6 @@ async def create_import_session(
 async def create_workspace_import_session(
     workspace_id: str,
     file: UploadFile = File(...),
-    repo: ImportSessionRepository = Depends(get_session_repo),
 ) -> ImportSessionSchema:
     """
     Create a new import session for a specific workspace.
@@ -255,6 +271,10 @@ async def create_workspace_import_session(
     # Check for headers-only file
     if total_rows == 0:
         raise HTTPException(status_code=400, detail="File contains only headers, no data rows")
+
+    # Get database connection using path workspace_id
+    conn = get_db(workspace_id)
+    repo = ImportSessionRepository(conn)
 
     # Create session with workspace association
     session = create_session(
@@ -974,121 +994,207 @@ async def execute_import(
         try:
             import pandas as pd
             import hashlib
-            storage = get_workspace_storage()
-            workspace_uuid = UUID(session.workspace_id)
 
-            # Verify workspace exists
-            workspace = storage.get_workspace(workspace_uuid)
-            if workspace:
-                # Read the uploaded file (CSV or XLSX)
-                csv_path = Path(session.file_reference)
-                if csv_path.exists():
-                    file_bytes = csv_path.read_bytes()
-                    df = parse_csv_file(
-                        file_bytes,
-                        filename=session.original_filename or csv_path.name,
+            # Read the uploaded file (CSV or XLSX)
+            csv_path = Path(session.file_reference)
+            if csv_path.exists():
+                file_bytes = csv_path.read_bytes()
+                df = parse_csv_file(
+                    file_bytes,
+                    filename=session.original_filename or csv_path.name,
+                )
+
+                # Apply column mapping to transform raw data
+                mapping = session.column_mapping or {}
+
+                # Create processed dataframe with expected columns
+                processed_df = pd.DataFrame()
+
+                def get_numeric(col: str | None) -> pd.Series:
+                    if not col or col not in df.columns:
+                        return pd.Series([0] * len(df))
+                    cleaned = (
+                        df[col]
+                        .fillna("")
+                        .astype(str)
+                        .str.strip()
+                        .str.replace(r"^\((.*)\)$", r"-\1", regex=True)
+                        .str.replace("$", "", regex=False)
+                        .str.replace(",", "", regex=False)
+                        .str.replace("%", "", regex=False)
+                        .str.replace(" ", "", regex=False)
                     )
+                    return pd.to_numeric(cleaned, errors="coerce").fillna(0)
 
-                    # Apply column mapping to transform raw data
-                    mapping = session.column_mapping or {}
+                # Generate internal_id from SSN (hashed)
+                ssn_col = mapping.get("ssn")
+                if ssn_col and ssn_col in df.columns:
+                    census_salt = str(uuid4())[:8]
+                    processed_df["internal_id"] = df[ssn_col].fillna("").astype(str).apply(
+                        lambda x: hashlib.sha256(f"{x}{census_salt}".encode()).hexdigest()[:16]
+                    )
+                else:
+                    processed_df["internal_id"] = [f"p{i}" for i in range(len(df))]
+                    census_salt = str(uuid4())[:8]
 
-                    # Create processed dataframe with expected columns
-                    processed_df = pd.DataFrame()
+                # Map compensation (convert to cents)
+                comp_col = mapping.get("compensation")
+                comp_values = get_numeric(comp_col)
+                processed_df["compensation"] = comp_values
+                processed_df["compensation_cents"] = (comp_values * 100).round().astype(int)
 
-                    def get_numeric(col: str | None) -> pd.Series:
-                        if not col or col not in df.columns:
-                            return pd.Series([0] * len(df))
-                        cleaned = (
-                            df[col]
-                            .fillna("")
-                            .astype(str)
-                            .str.strip()
-                            .str.replace(r"^\((.*)\)$", r"-\1", regex=True)
-                            .str.replace("$", "", regex=False)
-                            .str.replace(",", "", regex=False)
-                            .str.replace("%", "", regex=False)
-                            .str.replace(" ", "", regex=False)
-                        )
-                        return pd.to_numeric(cleaned, errors="coerce").fillna(0)
+                # Map date fields (critical for ACP exclusion logic)
+                def get_date(col: str | None) -> pd.Series:
+                    """Parse date column, returning ISO format strings or empty."""
+                    if not col or col not in df.columns:
+                        return pd.Series([""] * len(df))
+                    return df[col].fillna("").astype(str).str.strip()
 
-                    # Generate internal_id from SSN (hashed)
-                    ssn_col = mapping.get("ssn")
-                    if ssn_col and ssn_col in df.columns:
-                        census_salt = str(uuid4())[:8]
-                        processed_df["internal_id"] = df[ssn_col].fillna("").astype(str).apply(
-                            lambda x: hashlib.sha256(f"{x}{census_salt}".encode()).hexdigest()[:16]
-                        )
-                    else:
-                        processed_df["internal_id"] = [f"p{i}" for i in range(len(df))]
+                dob_col = mapping.get("dob")
+                processed_df["dob"] = get_date(dob_col)
 
-                    # Map compensation (convert to cents)
-                    comp_col = mapping.get("compensation")
-                    comp_values = get_numeric(comp_col)
-                    processed_df["compensation"] = comp_values
-                    processed_df["compensation_cents"] = (comp_values * 100).round().astype(int)
+                hire_date_col = mapping.get("hire_date")
+                processed_df["hire_date"] = get_date(hire_date_col)
 
-                    # Determine HCE status based on compensation threshold
+                termination_date_col = mapping.get("termination_date")
+                processed_df["termination_date"] = get_date(termination_date_col)
+
+                # Determine HCE status - use explicit column if mapped, else compensation threshold
+                hce_col = mapping.get("hce_status")
+                if hce_col and hce_col in df.columns:
+                    # Parse HCE status from column (Y/N, True/False, 1/0, Yes/No)
+                    hce_values = df[hce_col].fillna("").astype(str).str.strip().str.upper()
+                    processed_df["is_hce"] = hce_values.isin(["Y", "YES", "TRUE", "1", "HCE"])
+                else:
+                    # Fall back to compensation threshold
                     hce_threshold = 155000 if request.plan_year >= 2024 else 150000
                     processed_df["is_hce"] = processed_df["compensation"] >= hce_threshold
 
-                    # Map contribution columns (convert to cents)
-                    pre_tax_col = mapping.get("employee_pre_tax")
-                    pre_tax_values = get_numeric(pre_tax_col)
-                    processed_df["pre_tax_cents"] = (pre_tax_values * 100).round().astype(int)
+                # Map contribution columns (convert to cents)
+                pre_tax_col = mapping.get("employee_pre_tax")
+                pre_tax_values = get_numeric(pre_tax_col)
+                processed_df["pre_tax_cents"] = (pre_tax_values * 100).round().astype(int)
 
-                    after_tax_col = mapping.get("employee_after_tax")
-                    after_tax_values = get_numeric(after_tax_col)
-                    processed_df["after_tax_cents"] = (after_tax_values * 100).round().astype(int)
+                after_tax_col = mapping.get("employee_after_tax")
+                after_tax_values = get_numeric(after_tax_col)
+                processed_df["after_tax_cents"] = (after_tax_values * 100).round().astype(int)
 
-                    roth_col = mapping.get("employee_roth")
-                    roth_values = get_numeric(roth_col)
-                    processed_df["roth_cents"] = (roth_values * 100).round().astype(int)
+                roth_col = mapping.get("employee_roth")
+                roth_values = get_numeric(roth_col)
+                processed_df["roth_cents"] = (roth_values * 100).round().astype(int)
 
-                    match_col = mapping.get("employer_match")
-                    match_values = get_numeric(match_col)
-                    processed_df["match_cents"] = (match_values * 100).round().astype(int)
+                match_col = mapping.get("employer_match")
+                match_values = get_numeric(match_col)
+                processed_df["match_cents"] = (match_values * 100).round().astype(int)
 
-                    non_elective_col = mapping.get("employer_non_elective")
-                    non_elective_values = get_numeric(non_elective_col)
-                    processed_df["non_elective_cents"] = (non_elective_values * 100).round().astype(int)
+                non_elective_col = mapping.get("employer_non_elective")
+                non_elective_values = get_numeric(non_elective_col)
+                processed_df["non_elective_cents"] = (non_elective_values * 100).round().astype(int)
 
-                    # Calculate deferral_rate (pre_tax / compensation)
-                    processed_df["deferral_rate"] = 0.0
-                    mask = processed_df["compensation"] > 0
-                    if mask.any():
-                        processed_df.loc[mask, "deferral_rate"] = (
-                            pre_tax_values.loc[mask] / processed_df.loc[mask, "compensation"]
-                        )
-
-                    # Save processed census data as CSV
-                    processed_csv = processed_df.to_csv(index=False)
-                    storage.save_census_data(workspace_uuid, processed_csv)
-
-                    # Calculate statistics
-                    participant_count = len(processed_df)
-                    hce_count = int(processed_df["is_hce"].sum())
-                    nhce_count = participant_count - hce_count
-                    avg_compensation = float(processed_df["compensation"].mean()) if participant_count > 0 else 0.0
-
-                    # Create and save summary
-                    census_id = str(uuid4())
-                    census_summary = CensusSummaryModel(
-                        id=census_id,
-                        plan_year=request.plan_year,
-                        participant_count=participant_count,
-                        hce_count=hce_count,
-                        nhce_count=nhce_count,
-                        avg_compensation=avg_compensation,
-                        upload_timestamp=datetime.utcnow(),
+                # Calculate deferral_rate (pre_tax / compensation)
+                processed_df["deferral_rate"] = 0.0
+                mask = processed_df["compensation"] > 0
+                if mask.any():
+                    processed_df.loc[mask, "deferral_rate"] = (
+                        pre_tax_values.loc[mask] / processed_df.loc[mask, "compensation"]
                     )
-                    storage.save_census_summary(workspace_uuid, census_summary)
-                    # Note: Not setting import_log.census_id because census is stored
-                    # in workspace files, not in the SQLite database that import_log references
+
+                # Calculate match_rate and after_tax_rate
+                processed_df["match_rate"] = 0.0
+                processed_df["after_tax_rate"] = 0.0
+                if mask.any():
+                    processed_df.loc[mask, "match_rate"] = (
+                        match_values.loc[mask] / processed_df.loc[mask, "compensation"]
+                    )
+                    processed_df.loc[mask, "after_tax_rate"] = (
+                        after_tax_values.loc[mask] / processed_df.loc[mask, "compensation"]
+                    )
+
+                # Calculate statistics
+                participant_count = len(processed_df)
+                hce_count = int(processed_df["is_hce"].sum())
+                nhce_count = participant_count - hce_count
+                avg_compensation = float(processed_df["compensation"].mean()) if participant_count > 0 else 0.0
+                avg_deferral = float(processed_df["deferral_rate"].mean()) * 100 if participant_count > 0 else 0.0
+
+                # Create census ID and timestamp
+                census_id = str(uuid4())
+                upload_timestamp = datetime.utcnow()
+
+                # CRITICAL: Save to DuckDB for analysis routes to read
+                from app.storage.models import Census as CensusModel, Participant as ParticipantModel
+                from app.storage.repository import CensusRepository, ParticipantRepository
+                from app.storage.database import get_db
+
+                # Get database connection for this workspace
+                db_conn = get_db(session.workspace_id)
+
+                # Create Census record in DuckDB
+                census_model = CensusModel(
+                    id=census_id,
+                    name=request.census_name,
+                    client_name=None,
+                    plan_year=request.plan_year,
+                    hce_mode="explicit" if hce_col else "compensation_threshold",
+                    upload_timestamp=upload_timestamp,
+                    participant_count=participant_count,
+                    hce_count=hce_count,
+                    nhce_count=nhce_count,
+                    avg_compensation_cents=int(avg_compensation * 100),
+                    avg_deferral_rate=avg_deferral,
+                    salt=census_salt,
+                    version="1.0.0",
+                )
+                census_repo = CensusRepository(db_conn)
+                census_repo.save(census_model)
+
+                # Create Participant records in DuckDB
+                from datetime import date as date_type
+
+                def parse_date_str(date_str: str) -> date_type | None:
+                    """Parse date string to date object, return None if invalid."""
+                    if not date_str or not date_str.strip():
+                        return None
+                    try:
+                        return date_type.fromisoformat(date_str.strip())
+                    except ValueError:
+                        return None
+
+                participant_models = []
+                for idx, row in processed_df.iterrows():
+                    # Parse dates - convert strings to date objects
+                    dob_str = str(row.get("dob", "")).strip()
+                    hire_str = str(row.get("hire_date", "")).strip()
+                    term_str = str(row.get("termination_date", "")).strip()
+
+                    participant_model = ParticipantModel(
+                        id=str(uuid4()),
+                        census_id=census_id,
+                        internal_id=str(row["internal_id"]),
+                        is_hce=bool(row["is_hce"]),
+                        compensation_cents=int(row["compensation_cents"]),
+                        deferral_rate=float(row["deferral_rate"]) * 100,  # Convert to percentage
+                        match_rate=float(row["match_rate"]) * 100,
+                        after_tax_rate=float(row["after_tax_rate"]) * 100,
+                        dob=parse_date_str(dob_str),
+                        hire_date=parse_date_str(hire_str),
+                        termination_date=parse_date_str(term_str),
+                    )
+                    participant_models.append(participant_model)
+
+                participant_repo = ParticipantRepository(db_conn)
+                participant_repo.bulk_insert(participant_models)
+
+                # Set census_id on import log
+                import_log.census_id = census_id
         except Exception as e:
-            # Log but don't fail the import
+            # Re-raise with more context
             import traceback
-            print(f"Warning: Failed to save census: {e}")
+            print(f"ERROR: Failed to save census: {e}")
+            print(f"  workspace_id: {session.workspace_id}")
+            print(f"  file_reference: {session.file_reference}")
             traceback.print_exc()
+            raise HTTPException(status_code=500, detail=f"Census save failed: {str(e)}")
 
     # Update log with results
     import_log.imported_count = imported_count
@@ -1375,9 +1481,10 @@ async def list_workspace_mapping_profiles(
     workspace_id: str,
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
-    repo: MappingProfileRepository = Depends(get_profile_repo),
 ) -> MappingProfileList:
     """T037: List mapping profiles for a specific workspace."""
+    conn = get_db(workspace_id)
+    repo = MappingProfileRepository(conn)
     profiles, total = repo.list_by_workspace(workspace_id, limit=limit, offset=offset)
 
     return MappingProfileList(
@@ -1405,9 +1512,10 @@ async def list_workspace_mapping_profiles(
 async def create_workspace_mapping_profile(
     workspace_id: str,
     request: MappingProfileCreate,
-    repo: MappingProfileRepository = Depends(get_profile_repo),
 ) -> MappingProfileSchema:
     """T038: Create a new mapping profile for a specific workspace."""
+    conn = get_db(workspace_id)
+    repo = MappingProfileRepository(conn)
     # Check for duplicate name in workspace
     existing = repo.get_by_name(request.name, workspace_id=workspace_id)
     if existing:
@@ -1444,9 +1552,10 @@ async def update_workspace_mapping_profile(
     workspace_id: str,
     profile_id: str,
     request: MappingProfileUpdate,
-    repo: MappingProfileRepository = Depends(get_profile_repo),
 ) -> MappingProfileSchema:
     """T039: Update a mapping profile in a specific workspace."""
+    conn = get_db(workspace_id)
+    repo = MappingProfileRepository(conn)
     profile = repo.get(profile_id)
     if profile is None or profile.workspace_id != workspace_id:
         raise HTTPException(status_code=404, detail="Mapping profile not found in workspace")
@@ -1478,9 +1587,10 @@ async def update_workspace_mapping_profile(
 async def delete_workspace_mapping_profile(
     workspace_id: str,
     profile_id: str,
-    repo: MappingProfileRepository = Depends(get_profile_repo),
 ) -> None:
     """T040: Delete a mapping profile from a specific workspace."""
+    conn = get_db(workspace_id)
+    repo = MappingProfileRepository(conn)
     profile = repo.get(profile_id)
     if profile is None or profile.workspace_id != workspace_id:
         raise HTTPException(status_code=404, detail="Mapping profile not found in workspace")

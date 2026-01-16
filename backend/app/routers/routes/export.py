@@ -8,11 +8,12 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import Response
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
+from app.routers.dependencies import get_workspace_id_from_header
 from app.routers.schemas import Error
 from app.services.constants import RATE_LIMIT
 from app.services.export import format_csv_export, generate_pdf_report
@@ -47,9 +48,10 @@ async def export_csv(
     request: Request,
     census_id: str,
     grid_id: str | None = None,
+    workspace_id: str = Depends(get_workspace_id_from_header),
 ) -> Response:
     """T072: Export results as CSV endpoint."""
-    conn = get_db()
+    conn = get_db(workspace_id)
 
     # Get census
     census_repo = CensusRepository(conn)
@@ -139,9 +141,10 @@ async def export_pdf(
     request: Request,
     census_id: str,
     grid_id: str | None = None,
+    workspace_id: str = Depends(get_workspace_id_from_header),
 ) -> Response:
     """T073: Export results as PDF endpoint."""
-    conn = get_db()
+    conn = get_db(workspace_id)
 
     # Get census
     census_repo = CensusRepository(conn)

@@ -95,11 +95,11 @@ export default function ImportWizard({
       setSession(newSession)
 
       // Get file preview
-      const preview = await importWizardService.getFilePreview(newSession.id)
+      const preview = await importWizardService.getFilePreview(workspaceId, newSession.id)
       setFilePreview(preview)
 
       // Get mapping suggestions
-      const suggestions = await importWizardService.suggestMapping(newSession.id)
+      const suggestions = await importWizardService.suggestMapping(workspaceId, newSession.id)
       setMappingSuggestion(suggestions)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to upload file')
@@ -116,10 +116,10 @@ export default function ImportWizard({
     setError(null)
 
     try {
-      const updatedSession = await importWizardService.setMapping(session.id, { mapping })
+      const updatedSession = await importWizardService.setMapping(workspaceId, session.id, { mapping })
 
       // Get date format detection
-      const detection = await importWizardService.detectDateFormat(session.id)
+      const detection = await importWizardService.detectDateFormat(workspaceId, session.id)
       setDateFormatDetection(detection)
 
       // Advance to date_format step
@@ -129,7 +129,7 @@ export default function ImportWizard({
     } finally {
       setLoading(false)
     }
-  }, [session])
+  }, [session, workspaceId])
 
   // Handle date format selection
   const handleDateFormatSubmit = useCallback(async (format: string) => {
@@ -139,14 +139,14 @@ export default function ImportWizard({
     setError(null)
 
     try {
-      const updatedSession = await importWizardService.setDateFormat(session.id, format)
+      const updatedSession = await importWizardService.setDateFormat(workspaceId, session.id, format)
 
       // Run validation
-      const result = await importWizardService.runValidation(session.id)
+      const result = await importWizardService.runValidation(workspaceId, session.id)
       setValidationResult(result)
 
       // Get preview rows
-      const rows = await importWizardService.getPreviewRows(session.id)
+      const rows = await importWizardService.getPreviewRows(workspaceId, session.id)
       setPreviewRows(rows)
 
       // Advance to validation step
@@ -156,7 +156,7 @@ export default function ImportWizard({
     } finally {
       setLoading(false)
     }
-  }, [session])
+  }, [session, workspaceId])
 
   // Handle validation continue
   const handleValidationContinue = useCallback(async () => {
@@ -167,7 +167,7 @@ export default function ImportWizard({
 
     try {
       // Refresh session detail
-      const detail = await importWizardService.getSession(session.id)
+      const detail = await importWizardService.getSession(workspaceId, session.id)
       setSessionDetail(detail)
 
       // Advance to preview/confirm step
@@ -177,7 +177,7 @@ export default function ImportWizard({
     } finally {
       setLoading(false)
     }
-  }, [session])
+  }, [session, workspaceId])
 
   // Handle import execution
   const handleImportExecute = useCallback(async (
@@ -192,7 +192,7 @@ export default function ImportWizard({
     setError(null)
 
     try {
-      const result = await importWizardService.executeImport(session.id, {
+      const result = await importWizardService.executeImport(workspaceId, session.id, {
         census_name: censusName,
         plan_year: planYear,
         save_mapping_profile: saveProfile,
@@ -207,19 +207,19 @@ export default function ImportWizard({
     } finally {
       setLoading(false)
     }
-  }, [session, onComplete])
+  }, [session, onComplete, workspaceId])
 
   // Handle cancel/back
   const handleCancel = useCallback(async () => {
     if (session) {
       try {
-        await importWizardService.deleteSession(session.id)
+        await importWizardService.deleteSession(workspaceId, session.id)
       } catch {
         // Ignore delete errors
       }
     }
     onCancel?.()
-  }, [session, onCancel])
+  }, [session, onCancel, workspaceId])
 
   // Handle navigation to previous step
   const handleBack = useCallback(async (targetStep: WizardStep) => {
@@ -238,7 +238,7 @@ export default function ImportWizard({
     setError(null)
 
     try {
-      const result = await importWizardService.applyProfile(session.id, profile.id)
+      const result = await importWizardService.applyProfile(workspaceId, session.id, profile.id)
 
       // Refresh mapping suggestions with applied mappings
       if (mappingSuggestion) {
@@ -260,7 +260,7 @@ export default function ImportWizard({
     } finally {
       setLoading(false)
     }
-  }, [session, mappingSuggestion])
+  }, [session, mappingSuggestion, workspaceId])
 
   // Render current step
   const renderStep = () => {
@@ -299,6 +299,7 @@ export default function ImportWizard({
       case 'date_format':
         return (
           <StepDateFormat
+            workspaceId={workspaceId}
             sessionId={session?.id || ''}
             detection={dateFormatDetection}
             onSubmit={handleDateFormatSubmit}
@@ -311,6 +312,7 @@ export default function ImportWizard({
       case 'validation':
         return (
           <StepValidation
+            workspaceId={workspaceId}
             sessionId={session?.id || ''}
             validationResult={validationResult}
             previewRows={previewRows}

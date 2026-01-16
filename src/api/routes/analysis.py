@@ -9,8 +9,10 @@ import io
 import time
 import uuid
 from datetime import datetime
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Request, status
+import duckdb
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -44,7 +46,7 @@ from src.core.constants import RATE_LIMIT, SYSTEM_VERSION
 from src.core.acp_eligibility import ACPInclusionError
 from src.core.scenario_runner import run_single_scenario, run_grid_scenarios, run_single_scenario_v2, run_grid_scenarios_v2
 from src.core.models import ScenarioStatus
-from src.storage.database import get_db
+from src.api.dependencies import get_database
 from src.storage.models import AnalysisResult as AnalysisResultModel
 from src.storage.models import GridAnalysis as GridAnalysisModel
 from src.storage.repository import (
@@ -78,9 +80,9 @@ async def run_analysis(
     request: Request,
     census_id: str,
     scenario: SingleScenarioRequest,
+    conn: Annotated[duckdb.DuckDBPyConnection, Depends(get_database)],
 ) -> AnalysisResult:
     """T041: Run single scenario analysis endpoint."""
-    conn = get_db()
 
     # Verify census exists
     census_repo = CensusRepository(conn)
@@ -174,9 +176,9 @@ async def run_grid_analysis(
     request: Request,
     census_id: str,
     grid_request: GridScenarioRequest,
+    conn: Annotated[duckdb.DuckDBPyConnection, Depends(get_database)],
 ) -> GridAnalysisResult:
     """T058 (Phase 4): Run grid scenario analysis endpoint."""
-    conn = get_db()
 
     # Verify census exists
     census_repo = CensusRepository(conn)
@@ -305,10 +307,10 @@ async def run_grid_analysis(
 async def list_results(
     request: Request,
     census_id: str,
+    conn: Annotated[duckdb.DuckDBPyConnection, Depends(get_database)],
     grid_id: str | None = None,
 ) -> AnalysisResultListResponse:
     """T042: List analysis results endpoint."""
-    conn = get_db()
 
     # Verify census exists
     census_repo = CensusRepository(conn)
@@ -369,9 +371,9 @@ async def list_results(
 async def run_scenario_v2(
     request: Request,
     scenario: ScenarioRequestV2,
+    conn: Annotated[duckdb.DuckDBPyConnection, Depends(get_database)],
 ) -> ScenarioResultV2:
     """T027: Run v2 single scenario analysis endpoint."""
-    conn = get_db()
 
     # T028: Validate census exists
     census_repo = CensusRepository(conn)
@@ -479,9 +481,9 @@ async def run_scenario_v2(
 async def run_grid_v2(
     request: Request,
     grid_request: GridRequestV2,
+    conn: Annotated[duckdb.DuckDBPyConnection, Depends(get_database)],
 ) -> GridResultV2:
     """T035: Run v2 grid scenario analysis endpoint."""
-    conn = get_db()
 
     # T036: Validate census exists
     census_repo = CensusRepository(conn)
@@ -616,9 +618,9 @@ async def get_employee_impact(
     request: Request,
     census_id: str,
     impact_request: EmployeeImpactRequest,
+    conn: Annotated[duckdb.DuckDBPyConnection, Depends(get_database)],
 ) -> EmployeeImpactViewResponse:
     """T023: Get employee-level impact view endpoint."""
-    conn = get_db()
 
     # Initialize repositories
     census_repo = CensusRepository(conn)
@@ -735,9 +737,9 @@ async def export_employee_impact(
     request: Request,
     census_id: str,
     export_request: EmployeeImpactExportRequest,
+    conn: Annotated[duckdb.DuckDBPyConnection, Depends(get_database)],
 ) -> StreamingResponse:
     """T059: Export employee-level impact to CSV endpoint."""
-    conn = get_db()
 
     # Initialize repositories
     census_repo = CensusRepository(conn)

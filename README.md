@@ -15,28 +15,33 @@ The ACP Sensitivity Analyzer helps benefits professionals and plan compliance an
 ## Features
 
 ### Workspace Management
+
 - Create and manage multiple analysis workspaces
 - Each workspace maintains its own census data and analysis runs
 - File-based storage in `~/.acp-analyzer/workspaces/{uuid}/`
 
 ### Census Management
+
 - Import participant census data via CSV with drag-and-drop upload
 - Automatic PII masking (SSN, names stripped on import)
 - Support for explicit HCE flags or compensation-threshold determination
 - Summary statistics: participant counts, HCE/NHCE breakdown, average compensation
 
 ### Scenario Analysis
+
 - **Grid Analysis**: Run multiple scenarios across adoption × contribution rate combinations
 - Reproducible calculations with seeded random HCE selection
 - Real-time progress tracking during analysis
 
 ### Heatmap Exploration
+
 - Interactive visualization over adoption × contribution parameter space
 - Multiple view modes: Pass/Fail, Margin gradient, Risk Zone
 - Hover tooltips showing NHCE ACP, HCE ACP, effective limit, binding rule, and margin
 - Click-to-drill-down for employee-level details
 
 ### Employee-Level Impact Views
+
 - Individual employee detail drill-down for any scenario
 - **Compliance Card** showing all 9 ACP compliance metrics:
   - NHCE ACP, HCE ACP, Limit 1.25x, Limit +2.0%, Cap 2x, Capped +2.0%, Effective Limit, Binding Rule, Margin
@@ -45,21 +50,22 @@ The ACP Sensitivity Analyzer helps benefits professionals and plan compliance an
 - Sortable and paginated data table
 
 ### Export & Reporting
+
 - CSV export with all ACP compliance metrics (nhce_acp, hce_acp, limit_125, limit_2pct_uncapped, cap_2x, limit_2pct_capped, effective_limit, binding_rule, margin)
 - PDF report with census summary, results table, and compliance info
 - Audit-ready documentation for regulatory compliance
 
 ## Technology Stack
 
-| Layer | Technologies |
-|-------|-------------|
-| Backend API | FastAPI 0.100+, Python 3.11+ |
-| Frontend UI | React 19, TypeScript 5.8, Vite 6 |
-| Styling | Tailwind CSS |
-| Data Processing | Pandas 2.0+, NumPy |
-| Data Validation | Pydantic 2.0+ |
-| Storage | File-based JSON (workspaces) |
-| PDF Export | ReportLab 4.0+ |
+| Layer           | Technologies                     |
+| --------------- | -------------------------------- |
+| Backend API     | FastAPI 0.100+, Python 3.11+     |
+| Frontend UI     | React 19, TypeScript 5.8, Vite 6 |
+| Styling         | Tailwind CSS                     |
+| Data Processing | Pandas 2.0+, NumPy               |
+| Data Validation | Pydantic 2.0+                    |
+| Storage         | File-based JSON (workspaces)     |
+| PDF Export      | ReportLab 4.0+                   |
 
 ## Project Structure
 
@@ -150,6 +156,7 @@ python cli.py start
 ```
 
 This launches:
+
 - **API Server** at http://localhost:8000 (docs at http://localhost:8000/docs)
 - **React UI** at http://localhost:5173
 
@@ -196,42 +203,42 @@ cd frontend && npm run dev
 
 ### Workspaces
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/workspaces` | List all workspaces |
-| POST | `/api/workspaces` | Create workspace |
-| GET | `/api/workspaces/{id}` | Get workspace details |
-| PUT | `/api/workspaces/{id}` | Update workspace |
-| DELETE | `/api/workspaces/{id}` | Delete workspace |
+| Method | Endpoint               | Description           |
+| ------ | ---------------------- | --------------------- |
+| GET    | `/api/workspaces`      | List all workspaces   |
+| POST   | `/api/workspaces`      | Create workspace      |
+| GET    | `/api/workspaces/{id}` | Get workspace details |
+| PUT    | `/api/workspaces/{id}` | Update workspace      |
+| DELETE | `/api/workspaces/{id}` | Delete workspace      |
 
 ### Census
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/workspaces/{id}/census` | Upload census CSV |
-| GET | `/api/workspaces/{id}/census` | Get census summary |
+| Method | Endpoint                      | Description        |
+| ------ | ----------------------------- | ------------------ |
+| POST   | `/api/workspaces/{id}/census` | Upload census CSV  |
+| GET    | `/api/workspaces/{id}/census` | Get census summary |
 
 ### Analysis Runs
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/workspaces/{id}/runs` | List runs |
-| POST | `/api/workspaces/{id}/runs` | Create and execute run |
-| GET | `/api/workspaces/{id}/runs/{run_id}` | Get run with results |
-| DELETE | `/api/workspaces/{id}/runs/{run_id}` | Delete run |
+| Method | Endpoint                             | Description            |
+| ------ | ------------------------------------ | ---------------------- |
+| GET    | `/api/workspaces/{id}/runs`          | List runs              |
+| POST   | `/api/workspaces/{id}/runs`          | Create and execute run |
+| GET    | `/api/workspaces/{id}/runs/{run_id}` | Get run with results   |
+| DELETE | `/api/workspaces/{id}/runs/{run_id}` | Delete run             |
 
 ### Employee Impact
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/workspaces/{id}/runs/{run_id}/employees` | Get employee impact details |
+| Method | Endpoint                                       | Description                 |
+| ------ | ---------------------------------------------- | --------------------------- |
+| GET    | `/api/workspaces/{id}/runs/{run_id}/employees` | Get employee impact details |
 
 ### Export
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/workspaces/{id}/runs/{run_id}/export/csv` | Export to CSV |
-| GET | `/api/workspaces/{id}/runs/{run_id}/export/pdf` | Export to PDF |
+| Method | Endpoint                                        | Description   |
+| ------ | ----------------------------------------------- | ------------- |
+| GET    | `/api/workspaces/{id}/runs/{run_id}/export/csv` | Export to CSV |
+| GET    | `/api/workspaces/{id}/runs/{run_id}/export/pdf` | Export to PDF |
 
 ## Regulatory Background
 
@@ -246,28 +253,28 @@ This tool implements ACP testing per **IRC Section 401(m)**:
 
 Each scenario returns the following compliance fields:
 
-| Field | Description |
-|-------|-------------|
-| `nhce_acp` | Average contribution percentage for NHCEs |
-| `hce_acp` | Average contribution percentage for HCEs |
-| `limit_125` | NHCE ACP × 1.25 (first test branch) |
-| `limit_2pct_uncapped` | NHCE ACP + 2.0% (second test branch, uncapped) |
-| `cap_2x` | NHCE ACP × 2.0 (cap for second test) |
-| `limit_2pct_capped` | min(limit_2pct_uncapped, cap_2x) |
-| `effective_limit` | max(limit_125, limit_2pct_capped) - the binding threshold |
-| `binding_rule` | Which formula produced the effective limit: `"1.25x"` or `"2pct/2x"` |
-| `margin` | effective_limit - hce_acp (positive = passing) |
+| Field                 | Description                                                          |
+| --------------------- | -------------------------------------------------------------------- |
+| `nhce_acp`            | Average contribution percentage for NHCEs                            |
+| `hce_acp`             | Average contribution percentage for HCEs                             |
+| `limit_125`           | NHCE ACP × 1.25 (first test branch)                                  |
+| `limit_2pct_uncapped` | NHCE ACP + 2.0% (second test branch, uncapped)                       |
+| `cap_2x`              | NHCE ACP × 2.0 (cap for second test)                                 |
+| `limit_2pct_capped`   | min(limit_2pct_uncapped, cap_2x)                                     |
+| `effective_limit`     | max(limit_125, limit_2pct_capped) - the binding threshold            |
+| `binding_rule`        | Which formula produced the effective limit: `"1.25x"` or `"2pct/2x"` |
+| `margin`              | effective_limit - hce_acp (positive = passing)                       |
 
 Rounding: calculations are kept in decimal precision internally, while UI/CSV/PDF display ACP values in percentage points with two decimals (basis points).
 
 ### Status Classifications
 
-| Status | Description |
-|--------|-------------|
-| **PASS** | Margin > 0.50 percentage points above threshold |
-| **RISK** | Passing but margin ≤ 0.50 percentage points |
-| **FAIL** | HCE ACP exceeds calculated threshold |
-| **ERROR** | Calculation error (e.g., no HCEs/NHCEs) |
+| Status    | Description                                     |
+| --------- | ----------------------------------------------- |
+| **PASS**  | Margin > 0.50 percentage points above threshold |
+| **RISK**  | Passing but margin ≤ 0.50 percentage points     |
+| **FAIL**  | HCE ACP exceeds calculated threshold            |
+| **ERROR** | Calculation error (e.g., no HCEs/NHCEs)         |
 
 ## Configuration
 

@@ -61,15 +61,19 @@ async function createSession(
 /**
  * Get import session details.
  */
-async function getSession(sessionId: string): Promise<ImportSessionDetail> {
-  return api.get<ImportSessionDetail>(`/api/import/sessions/${sessionId}`)
+async function getSession(workspaceId: string, sessionId: string): Promise<ImportSessionDetail> {
+  return api.get<ImportSessionDetail>(`/api/import/sessions/${sessionId}`, {
+    headers: { 'X-Workspace-ID': workspaceId },
+  })
 }
 
 /**
  * Delete/cancel an import session.
  */
-async function deleteSession(sessionId: string): Promise<void> {
-  return api.delete(`/api/import/sessions/${sessionId}`)
+async function deleteSession(workspaceId: string, sessionId: string): Promise<void> {
+  return api.delete(`/api/import/sessions/${sessionId}`, {
+    headers: { 'X-Workspace-ID': workspaceId },
+  })
 }
 
 // ============================================================================
@@ -79,8 +83,10 @@ async function deleteSession(sessionId: string): Promise<void> {
 /**
  * Get file preview with headers and sample rows.
  */
-async function getFilePreview(sessionId: string): Promise<FilePreview> {
-  return api.get<FilePreview>(`/api/import/sessions/${sessionId}/preview`)
+async function getFilePreview(workspaceId: string, sessionId: string): Promise<FilePreview> {
+  return api.get<FilePreview>(`/api/import/sessions/${sessionId}/preview`, {
+    headers: { 'X-Workspace-ID': workspaceId },
+  })
 }
 
 // ============================================================================
@@ -90,9 +96,10 @@ async function getFilePreview(sessionId: string): Promise<FilePreview> {
 /**
  * Get auto-suggested column mappings with confidence scores.
  */
-async function suggestMapping(sessionId: string): Promise<ColumnMappingSuggestion> {
+async function suggestMapping(workspaceId: string, sessionId: string): Promise<ColumnMappingSuggestion> {
   return api.get<ColumnMappingSuggestion>(
-    `/api/import/sessions/${sessionId}/mapping/suggest`
+    `/api/import/sessions/${sessionId}/mapping/suggest`,
+    { headers: { 'X-Workspace-ID': workspaceId } }
   )
 }
 
@@ -100,12 +107,14 @@ async function suggestMapping(sessionId: string): Promise<ColumnMappingSuggestio
  * Set column mapping for the session.
  */
 async function setMapping(
+  workspaceId: string,
   sessionId: string,
   request: ColumnMappingRequest
 ): Promise<ImportSession> {
   return api.put<ImportSession>(
     `/api/import/sessions/${sessionId}/mapping`,
-    request
+    request,
+    { headers: { 'X-Workspace-ID': workspaceId } }
   )
 }
 
@@ -116,9 +125,10 @@ async function setMapping(
 /**
  * Auto-detect date format from sample data.
  */
-async function detectDateFormat(sessionId: string): Promise<DateFormatDetection> {
+async function detectDateFormat(workspaceId: string, sessionId: string): Promise<DateFormatDetection> {
   return api.get<DateFormatDetection>(
-    `/api/import/sessions/${sessionId}/date-format/detect`
+    `/api/import/sessions/${sessionId}/date-format/detect`,
+    { headers: { 'X-Workspace-ID': workspaceId } }
   )
 }
 
@@ -126,12 +136,14 @@ async function detectDateFormat(sessionId: string): Promise<DateFormatDetection>
  * Preview date parsing with a specific format.
  */
 async function previewDateFormat(
+  workspaceId: string,
   sessionId: string,
   format: string
 ): Promise<DateFormatPreview> {
   const encodedFormat = encodeURIComponent(format)
   return api.get<DateFormatPreview>(
-    `/api/import/sessions/${sessionId}/date-format/preview?format=${encodedFormat}`
+    `/api/import/sessions/${sessionId}/date-format/preview?format=${encodedFormat}`,
+    { headers: { 'X-Workspace-ID': workspaceId } }
   )
 }
 
@@ -139,12 +151,14 @@ async function previewDateFormat(
  * Set date format for the session.
  */
 async function setDateFormat(
+  workspaceId: string,
   sessionId: string,
   dateFormat: string
 ): Promise<ImportSession> {
   return api.put<ImportSession>(
     `/api/import/sessions/${sessionId}/date-format`,
-    { date_format: dateFormat }
+    { date_format: dateFormat },
+    { headers: { 'X-Workspace-ID': workspaceId } }
   )
 }
 
@@ -155,9 +169,11 @@ async function setDateFormat(
 /**
  * Run full validation on mapped data.
  */
-async function runValidation(sessionId: string): Promise<ValidationResult> {
+async function runValidation(workspaceId: string, sessionId: string): Promise<ValidationResult> {
   return api.post<ValidationResult>(
-    `/api/import/sessions/${sessionId}/validate`
+    `/api/import/sessions/${sessionId}/validate`,
+    undefined,
+    { headers: { 'X-Workspace-ID': workspaceId } }
   )
 }
 
@@ -165,6 +181,7 @@ async function runValidation(sessionId: string): Promise<ValidationResult> {
  * Get validation issues with optional filtering.
  */
 async function getValidationIssues(
+  workspaceId: string,
   sessionId: string,
   options: {
     severity?: ValidationSeverity
@@ -179,13 +196,16 @@ async function getValidationIssues(
 
   const query = params.toString()
   const url = `/api/import/sessions/${sessionId}/validation-issues${query ? `?${query}` : ''}`
-  return api.get<ValidationIssueList>(url)
+  return api.get<ValidationIssueList>(url, {
+    headers: { 'X-Workspace-ID': workspaceId },
+  })
 }
 
 /**
  * Get preview rows with validation status.
  */
 async function getPreviewRows(
+  workspaceId: string,
   sessionId: string,
   options: {
     status?: RowStatus
@@ -200,7 +220,9 @@ async function getPreviewRows(
 
   const query = params.toString()
   const url = `/api/import/sessions/${sessionId}/preview-rows${query ? `?${query}` : ''}`
-  return api.get<PreviewRowList>(url)
+  return api.get<PreviewRowList>(url, {
+    headers: { 'X-Workspace-ID': workspaceId },
+  })
 }
 
 // ============================================================================
@@ -211,12 +233,14 @@ async function getPreviewRows(
  * Execute the import and create census records.
  */
 async function executeImport(
+  workspaceId: string,
   sessionId: string,
   request: ImportExecuteRequest
 ): Promise<ImportResult> {
   return api.post<ImportResult>(
     `/api/import/sessions/${sessionId}/execute`,
-    request
+    request,
+    { headers: { 'X-Workspace-ID': workspaceId } }
   )
 }
 
@@ -276,12 +300,14 @@ async function deleteProfile(
  * Apply a mapping profile to a session.
  */
 async function applyProfile(
+  workspaceId: string,
   sessionId: string,
   profileId: string
 ): Promise<ProfileApplyResult> {
   return api.post<ProfileApplyResult>(
     `/api/import/sessions/${sessionId}/apply-profile`,
-    { profile_id: profileId }
+    { profile_id: profileId },
+    { headers: { 'X-Workspace-ID': workspaceId } }
   )
 }
 

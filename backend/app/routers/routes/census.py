@@ -15,9 +15,11 @@ from typing import Annotated
 
 logger = logging.getLogger(__name__)
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, Request, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, Response, UploadFile, status
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+
+from app.routers.dependencies import get_workspace_id_from_header
 
 from app.routers.schemas import (
     Census,
@@ -116,6 +118,7 @@ async def upload_census(
     client_name: Annotated[str | None, Form(max_length=255, description="Client/organization name")] = None,
     hce_mode: Annotated[HCEMode, Form(description="HCE determination method")] = "explicit",
     column_mapping: Annotated[str | None, Form(description="JSON string mapping target fields to source columns")] = None,
+    workspace_id: str = Depends(get_workspace_id_from_header),
 ) -> Census:
     """
     Upload census endpoint with column mapping and HCE mode support.
@@ -183,7 +186,7 @@ async def upload_census(
     )
 
     # Save to database
-    conn = get_db()
+    conn = get_db(workspace_id)
     census_repo = CensusRepository(conn)
     participant_repo = ParticipantRepository(conn)
     import_metadata_repo = ImportMetadataRepository(conn)
@@ -239,9 +242,10 @@ async def list_censuses(
     client_name: str | None = Query(None, description="Filter by client name (partial match)"),
     limit: int = Query(50, ge=1, le=100, description="Maximum results to return"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
+    workspace_id: str = Depends(get_workspace_id_from_header),
 ) -> CensusListResponse:
     """List censuses with client_name filter support."""
-    conn = get_db()
+    conn = get_db(workspace_id)
     repo = CensusRepository(conn)
 
     censuses, total = repo.list(
@@ -284,9 +288,13 @@ async def list_censuses(
     },
 )
 @limiter.limit(RATE_LIMIT)
-async def get_census(request: Request, census_id: str) -> CensusDetail:
+async def get_census(
+    request: Request,
+    census_id: str,
+    workspace_id: str = Depends(get_workspace_id_from_header),
+) -> CensusDetail:
     """Get census details with import metadata and analysis info."""
-    conn = get_db()
+    conn = get_db(workspace_id)
     census_repo = CensusRepository(conn)
     import_metadata_repo = ImportMetadataRepository(conn)
 
@@ -342,9 +350,13 @@ async def get_census(request: Request, census_id: str) -> CensusDetail:
     },
 )
 @limiter.limit(RATE_LIMIT)
-async def get_census_metadata(request: Request, census_id: str) -> ImportMetadataResponse:
+async def get_census_metadata(
+    request: Request,
+    census_id: str,
+    workspace_id: str = Depends(get_workspace_id_from_header),
+) -> ImportMetadataResponse:
     """Get import metadata for a census."""
-    conn = get_db()
+    conn = get_db(workspace_id)
     census_repo = CensusRepository(conn)
     import_metadata_repo = ImportMetadataRepository(conn)
 
@@ -391,9 +403,10 @@ async def list_census_participants(
     nhce_only: bool = Query(False, description="Return only NHCE participants"),
     limit: int = Query(100, ge=1, le=500, description="Maximum results to return"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
+    workspace_id: str = Depends(get_workspace_id_from_header),
 ) -> ParticipantListResponse:
     """List participants for a census with filtering."""
-    conn = get_db()
+    conn = get_db(workspace_id)
     census_repo = CensusRepository(conn)
     participant_repo = ParticipantRepository(conn)
 
@@ -444,9 +457,14 @@ async def list_census_participants(
     },
 )
 @limiter.limit(RATE_LIMIT)
-async def delete_census(request: Request, census_id: str, response: Response) -> None:
+async def delete_census(
+    request: Request,
+    census_id: str,
+    response: Response,
+    workspace_id: str = Depends(get_workspace_id_from_header),
+) -> None:
     """Delete census with warning for associated analyses."""
-    conn = get_db()
+    conn = get_db(workspace_id)
     repo = CensusRepository(conn)
 
     # Check if census exists
@@ -500,6 +518,7 @@ async def update_census_metadata(
     request: Request,
     census_id: str,
     update: CensusUpdateRequest,
+    workspace_id: str = Depends(get_workspace_id_from_header),
 ) -> Census:
     """
     Update census metadata (name and client_name only).
@@ -507,7 +526,7 @@ async def update_census_metadata(
     T032: Create PATCH endpoint for metadata updates
     T033: Validate only name and client_name can be modified
     """
-    conn = get_db()
+    conn = get_db(workspace_id)
     repo = CensusRepository(conn)
 
     # Check if census exists

@@ -17,8 +17,9 @@ import tempfile
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
+import duckdb
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 
 from src.api.schemas import (
@@ -56,7 +57,7 @@ from src.core.import_wizard import (
     parse_csv_preview,
     validate_file,
 )
-from src.storage.database import get_db
+from src.api.dependencies import get_database
 from src.storage.models import ImportSession, MappingProfile, ImportLog
 from src.storage.repository import (
     ImportSessionRepository,
@@ -76,27 +77,31 @@ MAX_FILE_SIZE = 50 * 1024 * 1024
 UPLOAD_DIR = Path(tempfile.gettempdir()) / "acp_imports"
 
 
-def get_session_repo():
+def get_session_repo(
+    conn: Annotated[duckdb.DuckDBPyConnection, Depends(get_database)]
+) -> ImportSessionRepository:
     """Dependency for ImportSessionRepository."""
-    conn = get_db()
     return ImportSessionRepository(conn)
 
 
-def get_profile_repo():
+def get_profile_repo(
+    conn: Annotated[duckdb.DuckDBPyConnection, Depends(get_database)]
+) -> MappingProfileRepository:
     """Dependency for MappingProfileRepository."""
-    conn = get_db()
     return MappingProfileRepository(conn)
 
 
-def get_issue_repo():
+def get_issue_repo(
+    conn: Annotated[duckdb.DuckDBPyConnection, Depends(get_database)]
+) -> ValidationIssueRepository:
     """Dependency for ValidationIssueRepository."""
-    conn = get_db()
     return ValidationIssueRepository(conn)
 
 
-def get_log_repo():
+def get_log_repo(
+    conn: Annotated[duckdb.DuckDBPyConnection, Depends(get_database)]
+) -> ImportLogRepository:
     """Dependency for ImportLogRepository."""
-    conn = get_db()
     return ImportLogRepository(conn)
 
 

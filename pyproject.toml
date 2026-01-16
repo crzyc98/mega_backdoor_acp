@@ -5,6 +5,7 @@ description = "ACP Sensitivity Analyzer for Mega-Backdoor Roth Compliance Testin
 requires-python = ">=3.11"
 dependencies = [
     "click>=8.1.0",
+    "duckdb>=1.0.0",
     "fastapi>=0.104.0",
     "uvicorn[standard]>=0.24.0",
     "streamlit>=1.28.0",

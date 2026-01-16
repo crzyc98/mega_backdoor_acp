@@ -17,28 +17,47 @@ from src.storage import database
 
 @pytest.fixture(scope="function", autouse=True)
 def reset_db():
-    """Reset database for each test."""
-    # Close existing connection
+    """Reset database for each test using a test workspace."""
+    import uuid
+
+    # Use a unique test workspace for each test
+    test_workspace_id = f"test-{uuid.uuid4()}"
+
+    # Close any existing connections
     database.close_db()
 
-    # Create temp database
-    temp_dir = tempfile.mkdtemp()
-    test_db_path = Path(temp_dir) / "test_export.db"
+    # Initialize fresh database for test workspace
+    from src.storage.database import get_workspace_db_path, create_connection, init_database
 
-    # Initialize fresh database
-    database.init_database(str(test_db_path))
-    database._connection = database.create_connection(str(test_db_path))
+    db_path = get_workspace_db_path(test_workspace_id)
+    conn = create_connection(db_path)
+    init_database(conn)
+    database._connections[test_workspace_id] = conn
 
-    yield
+    # Store workspace ID for tests to access
+    yield test_workspace_id
 
     # Cleanup
-    database.close_db()
+    database.close_db(test_workspace_id)
+
+    # Remove test database file
+    try:
+        db_path = get_workspace_db_path(test_workspace_id)
+        if db_path.exists():
+            db_path.unlink()
+        # Remove workspace directory if empty
+        db_path.parent.rmdir()
+    except Exception:
+        pass
 
 
 @pytest.fixture
-def client():
-    """Create test client."""
-    return TestClient(app)
+def client(reset_db):
+    """Create test client with workspace header."""
+    test_client = TestClient(app)
+    # Set default workspace header for tests
+    test_client.headers["X-Workspace-ID"] = reset_db
+    return test_client
 
 
 @pytest.fixture

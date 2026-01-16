@@ -125,7 +125,19 @@ class WorkspaceStorage:
         if not workspace:
             return None
 
-        has_census = self._census_file(workspace_id).exists()
+        # Check DuckDB for census data (primary) or fall back to file check
+        has_census = False
+        try:
+            from app.storage.database import get_db
+            from app.storage.repository import CensusRepository
+            conn = get_db(str(workspace_id))
+            census_repo = CensusRepository(conn)
+            censuses, total = census_repo.list(limit=1)
+            has_census = total > 0
+        except Exception:
+            # Fall back to file-based check
+            has_census = self._census_file(workspace_id).exists()
+
         run_count = len(self.list_runs(workspace_id))
 
         return WorkspaceDetail(
