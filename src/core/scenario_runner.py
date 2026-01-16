@@ -230,6 +230,8 @@ def run_single_scenario_v2(
     includable_participants = []
     terminated_before_entry_count = 0
     not_eligible_during_year_count = 0
+    missing_dob_count = 0
+    missing_hire_date_count = 0
 
     for p in participants:
         # If acp_includable field is present and False, exclude the participant
@@ -239,14 +241,25 @@ def run_single_scenario_v2(
                 terminated_before_entry_count += 1
             elif reason == "NOT_ELIGIBLE_DURING_YEAR":
                 not_eligible_during_year_count += 1
+            elif reason == "MISSING_DOB":
+                missing_dob_count += 1
+            elif reason == "MISSING_HIRE_DATE":
+                missing_hire_date_count += 1
         else:
             includable_participants.append(p)
 
-    excluded_count = terminated_before_entry_count + not_eligible_during_year_count
+    excluded_count = (
+        terminated_before_entry_count
+        + not_eligible_during_year_count
+        + missing_dob_count
+        + missing_hire_date_count
+    )
     exclusion_breakdown = ExclusionInfo(
         total_excluded=excluded_count,
         terminated_before_entry_count=terminated_before_entry_count,
         not_eligible_during_year_count=not_eligible_during_year_count,
+        missing_dob_count=missing_dob_count,
+        missing_hire_date_count=missing_hire_date_count,
     ) if excluded_count > 0 else None
 
     # Use filtered participants for calculations

@@ -1,0 +1,82 @@
+# OpenAPI Schema Fragment: ExclusionInfo Model Update
+# Feature: 011-fix-acp-exclusion
+# This extends the existing ExclusionInfo schema with new exclusion reason counts
+
+components:
+  schemas:
+    ExclusionInfo:
+      type: object
+      description: Summary of excluded participants with breakdown by reason
+      required:
+        - total_excluded
+        - terminated_before_entry_count
+        - not_eligible_during_year_count
+      properties:
+        total_excluded:
+          type: integer
+          minimum: 0
+          description: Total participants excluded from ACP calculations
+        terminated_before_entry_count:
+          type: integer
+          minimum: 0
+          description: Count excluded due to termination before entry date
+        not_eligible_during_year_count:
+          type: integer
+          minimum: 0
+          description: Count excluded due to entry date after plan year end
+        missing_dob_count:
+          type: integer
+          minimum: 0
+          default: 0
+          description: Count excluded due to missing date of birth
+        missing_hire_date_count:
+          type: integer
+          minimum: 0
+          default: 0
+          description: Count excluded due to missing hire date
+
+    ACPExclusionReason:
+      type: string
+      enum:
+        - TERMINATED_BEFORE_ENTRY
+        - NOT_ELIGIBLE_DURING_YEAR
+        - MISSING_DOB
+        - MISSING_HIRE_DATE
+      description: |
+        Reason a participant was excluded from ACP calculations:
+        - TERMINATED_BEFORE_ENTRY: Terminated before plan entry date
+        - NOT_ELIGIBLE_DURING_YEAR: Entry date after plan year end
+        - MISSING_DOB: Date of birth not provided (data error)
+        - MISSING_HIRE_DATE: Hire date not provided (data error)
+
+    ExcludedParticipant:
+      type: object
+      description: Details of an excluded participant for export/display
+      required:
+        - employee_id
+        - is_hce
+        - exclusion_reason
+      properties:
+        employee_id:
+          type: string
+          description: Participant employee ID (anonymized)
+        is_hce:
+          type: boolean
+          description: Whether participant is HCE
+        exclusion_reason:
+          $ref: '#/components/schemas/ACPExclusionReason'
+        eligibility_date:
+          type: string
+          format: date
+          nullable: true
+          description: Calculated eligibility date (null if data error)
+        entry_date:
+          type: string
+          format: date
+          nullable: true
+          description: Calculated entry date (null if data error)
+        termination_date:
+          type: string
+          format: date
+          nullable: true
+          description: Termination date if applicable
