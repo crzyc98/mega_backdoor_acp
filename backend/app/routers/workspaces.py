@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Literal, Optional
 from uuid import UUID, uuid4
 
@@ -21,7 +22,8 @@ from app.models.workspace import (
 from app.models.analysis import GridResult, GridSummary, ScenarioResult as ScenarioResultSchema
 from app.models.run import Run, RunCreate, RunListResponse, RunStatus
 from app.services.census_parser import CensusValidationError, process_census_bytes
-from app.services.scenario_runner import run_grid_scenarios_v2
+from app.services.scenario_runner import run_grid_scenarios_v2, run_single_scenario_v2
+from app.services.acp_calculator import calculate_acp_limits
 from app.services.models import ScenarioResult as ScenarioResultModel, ScenarioStatus
 from app.services.acp_eligibility import (
     ACPInclusionError,
@@ -392,27 +394,59 @@ def create_run(workspace_id: UUID, data: RunCreate) -> Run:
             seed=seed,
         )
 
+        def build_scenario_result(s: ScenarioResultModel) -> dict:
+            nhce_acp = float(s.nhce_acp) if s.nhce_acp is not None else None
+            hce_acp = float(s.hce_acp) if s.hce_acp is not None else None
+            limit_125 = float(s.limit_125) if s.limit_125 is not None else None
+            limit_2pct_uncapped = float(s.limit_2pct_uncapped) if s.limit_2pct_uncapped is not None else None
+            cap_2x = float(s.cap_2x) if s.cap_2x is not None else None
+            limit_2pct_capped = float(s.limit_2pct_capped) if s.limit_2pct_capped is not None else None
+            effective_limit = float(s.effective_limit) if s.effective_limit is not None else None
+            binding_rule = s.binding_rule if s.binding_rule else None
+            max_allowed_acp = float(s.max_allowed_acp) if s.max_allowed_acp is not None else None
+
+            if nhce_acp is not None and (
+                limit_125 is None
+                or limit_2pct_uncapped is None
+                or cap_2x is None
+                or limit_2pct_capped is None
+                or effective_limit is None
+                or binding_rule is None
+                or max_allowed_acp is None
+            ):
+                limits = calculate_acp_limits(Decimal(str(nhce_acp)))
+                limit_125 = limit_125 or float(limits["limit_125"])
+                limit_2pct_uncapped = limit_2pct_uncapped or float(limits["limit_2pct_uncapped"])
+                cap_2x = cap_2x or float(limits["cap_2x"])
+                limit_2pct_capped = limit_2pct_capped or float(limits["limit_2pct_capped"])
+                effective_limit = effective_limit or float(limits["effective_limit"])
+                if binding_rule is None:
+                    binding_rule = "1.25x" if limits["limit_125"] >= limits["limit_2pct_capped"] else "2pct/2x"
+                max_allowed_acp = max_allowed_acp or float(limits["effective_limit"])
+
+            return {
+                "status": s.status.value,
+                "nhce_acp": nhce_acp,
+                "hce_acp": hce_acp,
+                "limit_125": limit_125,
+                "limit_2pct_uncapped": limit_2pct_uncapped,
+                "cap_2x": cap_2x,
+                "limit_2pct_capped": limit_2pct_capped,
+                "effective_limit": effective_limit,
+                "max_allowed_acp": max_allowed_acp,
+                "margin": float(s.margin) if s.margin is not None else None,
+                "binding_rule": binding_rule,
+                "adoption_rate": s.adoption_rate,
+                "contribution_rate": s.contribution_rate,
+                "seed_used": s.seed_used,
+                "excluded_count": excluded_count,
+                "exclusion_breakdown": exclusion_info,
+            }
+
         # Convert to storage format
         results_dict = {
             "scenarios": [
-                {
-                    "status": s.status.value,
-                    "nhce_acp": float(s.nhce_acp) if s.nhce_acp is not None else None,
-                    "hce_acp": float(s.hce_acp) if s.hce_acp is not None else None,
-                    "limit_125": float(s.limit_125) if s.limit_125 is not None else None,
-                    "limit_2pct_uncapped": float(s.limit_2pct_uncapped) if s.limit_2pct_uncapped is not None else None,
-                    "cap_2x": float(s.cap_2x) if s.cap_2x is not None else None,
-                    "limit_2pct_capped": float(s.limit_2pct_capped) if s.limit_2pct_capped is not None else None,
-                    "effective_limit": float(s.effective_limit) if s.effective_limit is not None else None,
-                    "max_allowed_acp": float(s.max_allowed_acp) if s.max_allowed_acp is not None else None,
-                    "margin": float(s.margin) if s.margin is not None else None,
-                    "binding_rule": s.binding_rule if s.binding_rule else None,
-                    "adoption_rate": s.adoption_rate,
-                    "contribution_rate": s.contribution_rate,
-                    "seed_used": s.seed_used,
-                    "excluded_count": excluded_count,
-                    "exclusion_breakdown": exclusion_info,
-                }
+                build_scenario_result(s)
                 for s in grid_result.scenarios
             ],
             "summary": {
@@ -548,13 +582,13 @@ def get_employee_impact(
         )
 
     results = storage.get_run_results(workspace_id, run_id)
+    # Convert query params from percentages to fractions to match stored scenario format
+    # Run metadata stores rates as percentages (e.g., 25.0 for 25%)
+    # but scenario results store them as fractions (e.g., 0.25)
+    adoption_rate_frac = adoption_rate / 100.0
+    contribution_rate_frac = contribution_rate / 100.0
     scenario_summary = None
     if results:
-        # Convert query params from percentages to fractions to match stored scenario format
-        # Run metadata stores rates as percentages (e.g., 25.0 for 25%)
-        # but scenario results store them as fractions (e.g., 0.25)
-        adoption_rate_frac = adoption_rate / 100.0
-        contribution_rate_frac = contribution_rate / 100.0
         for scenario in results.get("scenarios", []):
             if (
                 abs(scenario.get("adoption_rate", 0) - adoption_rate_frac) < 1e-9
@@ -831,6 +865,62 @@ def get_employee_impact(
 
     hce_summary = compute_summary(hce_impacts, "HCE")
     nhce_summary = compute_summary(nhce_impacts, "NHCE")
+
+    def scenario_has_metrics(summary):
+        if not summary:
+            return False
+        return summary.get("nhce_acp") is not None and summary.get("hce_acp") is not None
+
+    if not scenario_has_metrics(scenario_summary):
+        computed = run_single_scenario_v2(
+            participants=participants,
+            adoption_rate=adoption_rate_frac,
+            contribution_rate=contribution_rate_frac,
+            seed=seed,
+        )
+        scenario_summary = {
+            "status": computed.status.value,
+            "nhce_acp": computed.nhce_acp,
+            "hce_acp": computed.hce_acp,
+            "limit_125": computed.limit_125,
+            "limit_2pct_uncapped": computed.limit_2pct_uncapped,
+            "cap_2x": computed.cap_2x,
+            "limit_2pct_capped": computed.limit_2pct_capped,
+            "effective_limit": computed.effective_limit,
+            "max_allowed_acp": computed.max_allowed_acp,
+            "margin": computed.margin,
+            "binding_rule": computed.binding_rule,
+            "adoption_rate": computed.adoption_rate,
+            "contribution_rate": computed.contribution_rate,
+            "seed_used": computed.seed_used,
+            "excluded_count": excluded_count,
+            "exclusion_breakdown": exclusion_breakdown,
+        }
+    elif scenario_summary.get("nhce_acp") is not None:
+        needs_limits = any(
+            scenario_summary.get(key) is None
+            for key in (
+                "limit_125",
+                "limit_2pct_uncapped",
+                "cap_2x",
+                "limit_2pct_capped",
+                "effective_limit",
+                "binding_rule",
+                "max_allowed_acp",
+            )
+        )
+        if needs_limits:
+            limits = calculate_acp_limits(Decimal(str(scenario_summary["nhce_acp"])))
+            scenario_summary.setdefault("limit_125", float(limits["limit_125"]))
+            scenario_summary.setdefault("limit_2pct_uncapped", float(limits["limit_2pct_uncapped"]))
+            scenario_summary.setdefault("cap_2x", float(limits["cap_2x"]))
+            scenario_summary.setdefault("limit_2pct_capped", float(limits["limit_2pct_capped"]))
+            scenario_summary.setdefault("effective_limit", float(limits["effective_limit"]))
+            scenario_summary.setdefault(
+                "binding_rule",
+                "1.25x" if limits["limit_125"] >= limits["limit_2pct_capped"] else "2pct/2x",
+            )
+            scenario_summary.setdefault("max_allowed_acp", float(limits["effective_limit"]))
 
     return {
         "census_id": census_summary.id,
