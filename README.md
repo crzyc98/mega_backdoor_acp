@@ -24,7 +24,7 @@ The ACP Sensitivity Analyzer helps benefits professionals and plan compliance an
 
 - Import participant census data via CSV with drag-and-drop upload
 - Automatic PII masking (SSN, names stripped on import)
-- Support for explicit HCE flags or compensation-threshold determination
+- HCE status determined by IRS compensation thresholds (automatic by plan year)
 - Summary statistics: participant counts, HCE/NHCE breakdown, average compensation
 
 ### Scenario Analysis

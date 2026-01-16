@@ -1,0 +1,221 @@
+# OpenAPI Schema Fragment: Rate Input Normalization
+# Feature: 014-normalize-rate-inputs
+# Date: 2026-01-16
+
+openapi: 3.0.3
+
+components:
+  schemas:
+    # ============================================================
+    # Rate Value Schema (standardized decimal format)
+    # ============================================================
+
+    RateValue:
+      type: number
+      format: float
+      minimum: 0.0
+      maximum: 1.0
+      description: |
+        Decimal fraction representing a percentage (0.0 to 1.0).
+        Example: 0.06 represents 6%, 0.75 represents 75%.
+
+        IMPORTANT: Submit decimal values, NOT percentages.
+        - Correct: 0.06 (for 6%)
+        - Incorrect: 6 (will be rejected)
+
+    # ============================================================
+    # Scenario Request Schemas (V2 - decimal format only)
+    # ============================================================
+
+    ScenarioRequestV2:
+      type: object
+      required:
+        - census_id
+        - adoption_rate
+        - contribution_rate
+      properties:
+        census_id:
+          type: string
+          description: Reference to loaded census data
+        adoption_rate:
+          $ref: '#/components/schemas/RateValue'
+          description: |
+            Fraction of HCEs participating in mega-backdoor (0.0 to 1.0).
+            Example: 0.75 means 75% of HCEs will participate.
+        contribution_rate:
+          $ref: '#/components/schemas/RateValue'
+          description: |
+            Mega-backdoor contribution as fraction of compensation (0.0 to 1.0).
+            Example: 0.06 means 6% of compensation contributed.
+        seed:
+          type: integer
+          minimum: 1
+          nullable: true
+          description: Random seed for HCE selection (auto-generated if omitted)
+        include_debug:
+          type: boolean
+          default: false
+          description: Include detailed calculation breakdown
+
+    GridRequestV2:
+      type: object
+      required:
+        - census_id
+        - adoption_rates
+        - contribution_rates
+      properties:
+        census_id:
+          type: string
+          description: Reference to loaded census data
+        adoption_rates:
+          type: array
+          items:
+            $ref: '#/components/schemas/RateValue'
+          minItems: 2
+          maxItems: 20
+          description: |
+            List of adoption rates to test (each 0.0 to 1.0).
+            Example: [0.25, 0.50, 0.75, 1.0]
+        contribution_rates:
+          type: array
+          items:
+            $ref: '#/components/schemas/RateValue'
+          minItems: 2
+          maxItems: 20
+          description: |
+            List of contribution rates to test (each 0.0 to 1.0).
+            Example: [0.03, 0.06, 0.10]
+        seed:
+          type: integer
+          minimum: 1
+          nullable: true
+          description: Base seed for all scenarios
+        include_debug:
+          type: boolean
+          default: false
+          description: Include debug details in each scenario result
+
+    EmployeeImpactRequest:
+      type: object
+      required:
+        - adoption_rate
+        - contribution_rate
+        - seed
+      properties:
+        adoption_rate:
+          $ref: '#/components/schemas/RateValue'
+          description: Fraction of HCEs participating (0.0 to 1.0)
+        contribution_rate:
+          $ref: '#/components/schemas/RateValue'
+          description: Mega-backdoor contribution as fraction of compensation
+        seed:
+          type: integer
+          minimum: 1
+          description: Random seed for HCE selection reproducibility
+
+    # ============================================================
+    # HCE Distribution Validation Error
+    # ============================================================
+
+    CensusHCEDistributionError:
+      type: object
+      required:
+        - error
+        - message
+        - hce_count
+        - nhce_count
+        - threshold_used
+        - plan_year
+        - suggestion
+      properties:
+        error:
+          type: string
+          enum: [INVALID_HCE_DISTRIBUTION]
+          description: Error code for HCE distribution validation failure
+        message:
+          type: string
+          description: Human-readable error message
+          example: "Census must contain both HCE and NHCE participants"
+        hce_count:
+          type: integer
+          minimum: 0
+          description: Number of HCE participants found
+        nhce_count:
+          type: integer
+          minimum: 0
+          description: Number of NHCE participants found
+        threshold_used:
+          type: integer
+          description: HCE compensation threshold applied
+          example: 160000
+        plan_year:
+          type: integer
+          description: Plan year used for threshold lookup
+          example: 2025
+        suggestion:
+          type: string
+          description: Guidance for resolving the error
+          example: |
+            Census contains no HCE participants. Verify compensation data
+            is correct or check that some employees earn above the HCE
+            threshold of $160,000 for plan year 2025.
+
+    # ============================================================
+    # HCE Thresholds Response
+    # ============================================================
+
+    HCEThresholdsResponse:
+      type: object
+      required:
+        - thresholds
+        - supported_years
+      properties:
+        thresholds:
+          type: object
+          additionalProperties:
+            type: integer
+          description: Map of plan year to HCE compensation threshold
+          example:
+            "2024": 155000
+            "2025": 160000
+            "2026": 160000
+            "2027": 160000
+            "2028": 160000
+        supported_years:
+          type: array
+          items:
+            type: integer
+          description: List of plan years with defined thresholds
+          example: [2024, 2025, 2026, 2027, 2028]
+
+  responses:
+    RateValidationError:
+      description: Rate value outside valid range (0.0 to 1.0)
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              detail:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    loc:
+                      type: array
+                      items:
+                        type: string
+                      example: ["body", "adoption_rate"]
+                    msg:
+                      type: string
+                      example: "ensure this value is less than or equal to 1.0"
+                    type:
+                      type: string
+                      example: "value_error.number.not_le"
+
+    HCEDistributionValidationError:
+      description: Census lacks required HCE/NHCE distribution
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CensusHCEDistributionError'

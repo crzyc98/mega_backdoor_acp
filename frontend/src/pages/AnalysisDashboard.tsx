@@ -8,9 +8,11 @@ import runService, { RunDetail } from '../services/runService'
 import Heatmap from '../components/Heatmap'
 import ViewModeSelector from '../components/ViewModeSelector'
 import LoadingSpinner from '../components/LoadingSpinner'
+import { percentToDecimal, decimalToPercent, isValidPercentRate } from '../utils/rateConversion'
 import type { Run, ViewMode, ScenarioResult } from '../types'
 
-// Default rate configurations (as percentages for API)
+// Default rate configurations (as percentages for display)
+// Note: Backend API expects decimal fractions (0.0-1.0), conversion happens on submit
 const DEFAULT_ADOPTION_RATES = [20, 40, 60, 80, 100]
 const DEFAULT_CONTRIBUTION_RATES = [2, 4, 6, 8, 10, 12]
 
@@ -70,11 +72,13 @@ export default function AnalysisDashboard() {
     try {
       const runDetail = await runService.get(activeWorkspace.id, runId)
       setSelectedRun(runDetail)
-      // Restore parameters from run
-      setAdoptionRates(runDetail.adoption_rates)
-      setContributionRates(runDetail.contribution_rates)
-      setAdoptionRatesText(formatRatesForDisplay(runDetail.adoption_rates))
-      setContributionRatesText(formatRatesForDisplay(runDetail.contribution_rates))
+      // Restore parameters from run (backend returns decimals, convert to percentages for display)
+      const adoptionPercents = runDetail.adoption_rates.map(decimalToPercent)
+      const contributionPercents = runDetail.contribution_rates.map(decimalToPercent)
+      setAdoptionRates(adoptionPercents)
+      setContributionRates(contributionPercents)
+      setAdoptionRatesText(formatRatesForDisplay(adoptionPercents))
+      setContributionRatesText(formatRatesForDisplay(contributionPercents))
       setSeed(runDetail.seed.toString())
     } catch (err) {
       console.error('Failed to load run:', err)
@@ -83,11 +87,12 @@ export default function AnalysisDashboard() {
 
   const parseRates = (text: string): number[] => {
     // Parse user input as percentages (e.g., "1, 2.5, 10" -> [1, 2.5, 10])
-    // API expects percentages and converts to fractions internally
+    // These are validated using isValidPercentRate (0-100 range)
+    // Conversion to decimal (0.0-1.0) happens on API submit
     return text
       .split(',')
       .map((s) => parseFloat(s.trim()))
-      .filter((n) => !isNaN(n) && n > 0 && n <= 100)
+      .filter((n) => !isNaN(n) && isValidPercentRate(n) && n > 0)
   }
 
   const handleRunAnalysis = async () => {
@@ -97,9 +102,13 @@ export default function AnalysisDashboard() {
     setError(null)
 
     try {
+      // Convert percentages (0-100) to decimals (0.0-1.0) for API submission
+      const adoptionDecimals = adoptionRates.map(percentToDecimal)
+      const contributionDecimals = contributionRates.map(percentToDecimal)
+
       const run = await runService.create(activeWorkspace.id, {
-        adoption_rates: adoptionRates,
-        contribution_rates: contributionRates,
+        adoption_rates: adoptionDecimals,
+        contribution_rates: contributionDecimals,
         seed: seed ? parseInt(seed, 10) : undefined,
       })
 

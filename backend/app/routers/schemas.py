@@ -12,17 +12,12 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
-# HCE Mode type
-HCEMode = Literal["explicit", "compensation_threshold"]
-
-
 # Census Schemas
 class CensusCreate(BaseModel):
     """Request model for census creation (form data fields)."""
-    plan_year: int = Field(..., ge=2020, le=2100, description="Plan year for analysis")
+    plan_year: int = Field(..., ge=2024, le=2028, description="Plan year for analysis (2024-2028). HCE status is determined by compensation threshold for this year.")
     name: str = Field(..., max_length=255, description="Name for the census")
     client_name: str | None = Field(None, max_length=255, description="Optional client/organization name")
-    hce_mode: HCEMode = Field("explicit", description="HCE determination method")
     column_mapping: str | None = Field(None, description="JSON string mapping source columns to target fields")
 
 
@@ -38,7 +33,6 @@ class CensusSummary(BaseModel):
     name: str
     client_name: str | None = None
     plan_year: int
-    hce_mode: HCEMode = "explicit"
     participant_count: int
     hce_count: int
     nhce_count: int
@@ -122,49 +116,35 @@ class CensusValidationError(BaseModel):
     errors: list[CensusValidationErrorDetail]
 
 
-# Analysis Request Schemas
-class SingleScenarioRequest(BaseModel):
-    """Request model for single scenario analysis."""
-    adoption_rate: float = Field(
+class CensusHCEDistributionError(BaseModel):
+    """Structured error returned when census lacks HCE or NHCE participants."""
+    error: str = Field(
+        default="INVALID_HCE_DISTRIBUTION",
+        description="Error code indicating HCE distribution validation failure"
+    )
+    message: str = Field(
         ...,
-        ge=0,
-        le=100,
-        description="Percentage of HCEs adopting mega-backdoor (0-100)"
+        description="Human-readable error message explaining the issue"
     )
-    contribution_rate: float = Field(
+    hce_count: int = Field(
+        ..., ge=0,
+        description="Number of HCE participants found"
+    )
+    nhce_count: int = Field(
+        ..., ge=0,
+        description="Number of NHCE participants found"
+    )
+    threshold_used: int = Field(
         ...,
-        ge=0,
-        le=15,
-        description="Mega-backdoor contribution rate as % of compensation (0-15)"
+        description="HCE compensation threshold applied for the plan year"
     )
-    seed: int | None = Field(
-        None,
-        description="Random seed for HCE selection (auto-generated if omitted)"
-    )
-
-
-class GridScenarioRequest(BaseModel):
-    """Request model for grid scenario analysis."""
-    adoption_rates: list[float] = Field(
+    plan_year: int = Field(
         ...,
-        min_length=2,
-        max_length=20,
-        description="List of adoption rates to test (0-100)"
+        description="Plan year used for threshold lookup"
     )
-    contribution_rates: list[float] = Field(
+    suggestion: str = Field(
         ...,
-        min_length=2,
-        max_length=20,
-        description="List of contribution rates to test (0-15)"
-    )
-    seed: int | None = Field(
-        None,
-        description="Random seed for HCE selection (shared across all scenarios)"
-    )
-    name: str | None = Field(
-        None,
-        max_length=255,
-        description="Optional name for the grid analysis"
+        description="Guidance for resolving the error"
     )
 
 
@@ -252,11 +232,11 @@ class ScenarioRequestV2(BaseModel):
     census_id: str = Field(..., description="Reference to loaded census data")
     adoption_rate: float = Field(
         ..., ge=0.0, le=1.0,
-        description="Fraction of HCEs participating in mega-backdoor (0.0 to 1.0)"
+        description="Decimal fraction (0.0 to 1.0), e.g., 0.75 for 75%. Values like 75 will be rejected."
     )
     contribution_rate: float = Field(
         ..., ge=0.0, le=1.0,
-        description="Mega-backdoor contribution as fraction of compensation (0.0 to 1.0)"
+        description="Decimal fraction (0.0 to 1.0), e.g., 0.06 for 6%. Values like 6 will be rejected."
     )
     seed: int | None = Field(
         None, ge=1,
@@ -349,11 +329,11 @@ class GridRequestV2(BaseModel):
     census_id: str = Field(..., description="Reference to loaded census data")
     adoption_rates: list[float] = Field(
         ..., min_length=2, max_length=20,
-        description="List of adoption rates to test (each 0.0 to 1.0)"
+        description="List of adoption rates as decimal fractions (each 0.0 to 1.0), e.g., [0.25, 0.50, 0.75]. Values like 25 will be rejected."
     )
     contribution_rates: list[float] = Field(
         ..., min_length=2, max_length=20,
-        description="List of contribution rates to test (each 0.0 to 1.0)"
+        description="List of contribution rates as decimal fractions (each 0.0 to 1.0), e.g., [0.03, 0.06, 0.10]. Values like 6 will be rejected."
     )
     seed: int | None = Field(
         None, ge=1,
@@ -698,11 +678,11 @@ class EmployeeImpactRequest(BaseModel):
     """Request model for computing employee impact view."""
     adoption_rate: float = Field(
         ..., ge=0.0, le=1.0,
-        description="Fraction of HCEs participating (0.0 to 1.0)"
+        description="Decimal fraction (0.0 to 1.0), e.g., 0.75 for 75%. Values like 75 will be rejected."
     )
     contribution_rate: float = Field(
         ..., ge=0.0, le=1.0,
-        description="Mega-backdoor contribution as fraction of compensation"
+        description="Decimal fraction (0.0 to 1.0), e.g., 0.06 for 6%. Values like 6 will be rejected."
     )
     seed: int = Field(
         ..., ge=1,
@@ -767,11 +747,11 @@ class EmployeeImpactExportRequest(BaseModel):
     """Request model for exporting employee impact to CSV."""
     adoption_rate: float = Field(
         ..., ge=0.0, le=1.0,
-        description="Fraction of HCEs participating"
+        description="Decimal fraction (0.0 to 1.0), e.g., 0.75 for 75%. Values like 75 will be rejected."
     )
     contribution_rate: float = Field(
         ..., ge=0.0, le=1.0,
-        description="Mega-backdoor contribution rate"
+        description="Decimal fraction (0.0 to 1.0), e.g., 0.06 for 6%. Values like 6 will be rejected."
     )
     seed: int = Field(
         ..., ge=1,

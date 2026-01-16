@@ -12,6 +12,7 @@ import ConstraintBadge from '../components/ConstraintBadge'
 import EmployeeTypeToggle from '../components/EmployeeTypeToggle'
 import FilterBar from '../components/FilterBar'
 import LoadingSpinner from '../components/LoadingSpinner'
+import { decimalToPercent } from '../utils/rateConversion'
 import type { EmployeeImpact as EmployeeImpactType, EmployeeImpactView, ConstraintStatus, Run } from '../types'
 
 type EmployeeFilter = 'HCE' | 'NHCE' | 'ALL'
@@ -36,10 +37,10 @@ function formatSignedPercentage(value: number | null | undefined): string {
   return `${sign}${value.toFixed(2)}%`
 }
 
-// Format rate for display - handles both fraction (0.25) and percentage (25) formats
+// Format rate for display - API returns decimals (0.0-1.0), convert to percentage for display
 function formatRateForDisplay(rate: number): string {
-  // If rate > 1, it's already a percentage; otherwise it's a fraction
-  const pct = rate > 1 ? rate : rate * 100
+  // Backend always returns decimal fractions (0.0-1.0), convert to percentage
+  const pct = decimalToPercent(rate)
   return `${pct.toFixed(0)}%`
 }
 
