@@ -1040,7 +1040,12 @@ def export_csv(workspace_id: UUID, run_id: UUID):
 
     csv_content = "\n".join(lines)
 
-    filename = f"acp_analysis_{run.seed}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+    # Build descriptive filename: WorkspaceName - PlanYear - Run# - MonthYear.csv
+    safe_name = "".join(c if c.isalnum() or c in " -_" else "" for c in workspace.name).strip()
+    safe_name = safe_name.replace(" ", "_")
+    export_date = datetime.utcnow().strftime("%b%Y")
+    plan_year = census.plan_year if census else 2024
+    filename = f"{safe_name}_{plan_year}_Run{run.seed}_{export_date}.csv"
 
     return StreamingResponse(
         iter([csv_content]),
@@ -1164,7 +1169,11 @@ def export_pdf(workspace_id: UUID, run_id: UUID):
             detail={"error": "dependency_missing", "message": str(e)},
         )
 
-    filename = f"acp_report_{run.seed}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.pdf"
+    # Build descriptive filename: WorkspaceName - PlanYear - Run# - MonthYear.pdf
+    safe_name = "".join(c if c.isalnum() or c in " -_" else "" for c in workspace.name).strip()
+    safe_name = safe_name.replace(" ", "_")
+    export_date = datetime.utcnow().strftime("%b%Y")
+    filename = f"{safe_name}_{census_dict['plan_year']}_Run{run.seed}_{export_date}.pdf"
 
     return StreamingResponse(
         iter([pdf_bytes]),
