@@ -8,13 +8,13 @@ find_max_safe_contribution(), and worst_margin calculation.
 import pytest
 from decimal import Decimal
 
-from src.core.scenario_runner import (
+from backend.app.services.scenario_runner import (
     compute_grid_summary,
     find_first_failure_point,
     find_max_safe_contribution,
     find_worst_margin,
 )
-from src.core.models import (
+from backend.app.services.models import (
     ScenarioResult,
     ScenarioStatus,
     LimitingBound,

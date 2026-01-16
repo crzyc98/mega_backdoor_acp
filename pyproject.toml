@@ -34,7 +34,7 @@ markers = [
 asyncio_mode = "auto"
 
 [tool.coverage.run]
-source = ["src"]
+source = ["backend/app"]
 branch = true
 omit = [
     "*/tests/*",
@@ -67,4 +67,4 @@ ignore = [
 ]
 
 [tool.ruff.isort]
-known-first-party = ["src"]
+known-first-party = ["backend", "app"]

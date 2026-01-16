@@ -10,15 +10,15 @@ from decimal import Decimal
 from unittest.mock import Mock, MagicMock
 
 # Import models (will fail until implementation is complete)
-from src.core.models import (
+from backend.app.services.models import (
     ConstraintStatus,
     EmployeeImpact,
     EmployeeImpactSummary,
     EmployeeImpactRequest,
     EmployeeImpactView,
 )
-from src.core.employee_impact import EmployeeImpactService
-from src.storage.models import Participant, Census
+from backend.app.services.employee_impact import EmployeeImpactService
+from backend.app.storage.models import Participant, Census
 
 
 # =============================================================================

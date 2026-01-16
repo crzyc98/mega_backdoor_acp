@@ -10,7 +10,7 @@ from typing import Literal
 
 from pydantic import ValidationError
 
-from src.api.schemas import (
+from backend.app.routers.schemas import (
     EmployeeImpactRequest,
     EmployeeImpactResponse,
     EmployeeImpactSummaryResponse,

@@ -7,26 +7,40 @@ Auto-generated from all feature plans. Last updated: 2026-01-16
 - DuckDB file per workspace (`~/.acp-analyzer/workspaces/{uuid}/workspace.duckdb`)
 - Python 3.11+ (backend), TypeScript 5.7+ (frontend) + React 19, React Router 7, Vite 6 (009-csv-upload-wizard)
 - Python 3.11+ + Streamlit 1.28+, Plotly 5.15+ (legacy UI, if used)
+- Python 3.11+ + FastAPI 0.104+, pandas 2.0+, pydantic 2.0+, DuckDB 1.0+, NumPy 1.24+ (013-src-to-backend-migration)
+- DuckDB (workspace-isolated databases at `~/.acp-analyzer/workspaces/{uuid}/workspace.duckdb`) (013-src-to-backend-migration)
 
 ## Project Structure
 
 ```text
-src/
-tests/
+backend/
+  app/
+    routers/     # API routes (FastAPI)
+    models/      # Pydantic models
+    services/    # Business logic
+    storage/     # Database layer (DuckDB)
+  tests/         # Backend tests
+frontend/        # React frontend
+tests/           # Root-level integration tests
 ```
 
 ## Commands
 
-cd src [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECHNOLOGIES] pytest [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECHNOLOGIES] ruff check .
+```bash
+cd backend && pytest tests/ -v    # Run backend tests
+pytest tests/ -v                   # Run root-level tests
+cd backend && uvicorn app.routers.main:app --reload  # Start API server
+ruff check .                       # Lint code
+```
 
 ## Code Style
 
 Python 3.11+: Follow standard conventions
 
 ## Recent Changes
+- 013-src-to-backend-migration: Added Python 3.11+ + FastAPI 0.104+, pandas 2.0+, pydantic 2.0+, DuckDB 1.0+, NumPy 1.24+
 - 012-duckdb-migration: Migrated from SQLite to DuckDB with workspace-isolated databases
 - 011-fix-acp-exclusion: Added Python 3.11+ + FastAPI 0.104+, pandas 2.0+, pydantic 2.0+, NumPy
-- 010-acp-limits-visibility: Added Python 3.11+, TypeScript 5.8+ + FastAPI 0.100+, React 19, Pydantic 2.0+, pandas 2.0+
 
 ## Database Notes (DuckDB Migration)
 - **No more SQLite**: The codebase now uses DuckDB exclusively for all data persistence

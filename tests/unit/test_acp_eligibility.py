@@ -4,7 +4,7 @@ Unit tests for ACP eligibility and permissive disaggregation logic.
 
 from datetime import date
 
-from src.core.acp_eligibility import determine_acp_inclusion, plan_year_bounds
+from backend.app.services.acp_eligibility import determine_acp_inclusion, plan_year_bounds
 
 
 def test_hired_late_eligible_next_year_excluded():

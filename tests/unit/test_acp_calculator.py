@@ -9,7 +9,7 @@ from decimal import Decimal
 
 import pytest
 
-from src.core.acp_calculator import (
+from backend.app.services.acp_calculator import (
     calculate_individual_acp,
     calculate_group_acp,
     calculate_nhce_acp,
@@ -338,7 +338,7 @@ class TestEdgeCases:
 
     def test_zero_hces_returns_zero_hce_acp(self):
         """T086: Zero HCEs should return zero HCE ACP."""
-        from src.core.acp_calculator import calculate_hce_acp
+        from backend.app.services.acp_calculator import calculate_hce_acp
         from decimal import Decimal
 
         participants = [
@@ -356,7 +356,7 @@ class TestEdgeCases:
 
     def test_zero_nhce_contribution_gives_zero_acp(self):
         """T087: Zero NHCE contributions should give NHCE ACP = 0."""
-        from src.core.acp_calculator import calculate_nhce_acp
+        from backend.app.services.acp_calculator import calculate_nhce_acp
 
         participants = [
             {"internal_id": "nhce1", "is_hce": False, "match_cents": 0, "after_tax_cents": 0, "compensation_cents": 50000},
@@ -369,7 +369,7 @@ class TestEdgeCases:
 
     def test_zero_nhce_acp_uses_plus2_threshold(self):
         """T087: Zero NHCE ACP should use +2.0% threshold."""
-        from src.core.acp_calculator import apply_acp_test
+        from backend.app.services.acp_calculator import apply_acp_test
         from decimal import Decimal
 
         result = apply_acp_test(
@@ -384,7 +384,7 @@ class TestEdgeCases:
 
     def test_hce_acp_exceeds_threshold_returns_fail(self):
         """Test that HCE ACP exceeding threshold returns FAIL."""
-        from src.core.acp_calculator import apply_acp_test
+        from backend.app.services.acp_calculator import apply_acp_test
         from decimal import Decimal
 
         result = apply_acp_test(
@@ -401,7 +401,7 @@ class TestIRC415cLimitWarning:
 
     def test_under_415c_limit_no_warning(self):
         """Contributions under 415(c) limit should not warn."""
-        from src.core.acp_calculator import check_415c_limit
+        from backend.app.services.acp_calculator import check_415c_limit
 
         result = check_415c_limit(
             compensation_cents=20000000,  # $200,000
@@ -418,7 +418,7 @@ class TestIRC415cLimitWarning:
 
     def test_over_415c_limit_warns(self):
         """Contributions over 415(c) limit should warn but not block."""
-        from src.core.acp_calculator import check_415c_limit
+        from backend.app.services.acp_calculator import check_415c_limit
 
         result = check_415c_limit(
             compensation_cents=20000000,  # $200,000
@@ -437,7 +437,7 @@ class TestIRC415cLimitWarning:
 
     def test_returns_contribution_totals(self):
         """Result should include contribution totals."""
-        from src.core.acp_calculator import check_415c_limit
+        from backend.app.services.acp_calculator import check_415c_limit
 
         result = check_415c_limit(
             compensation_cents=10000000,

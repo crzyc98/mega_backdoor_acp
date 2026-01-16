@@ -8,7 +8,7 @@ import hashlib
 import io
 import pytest
 
-from src.core.census_parser import (
+from backend.app.services.census_parser import (
     generate_census_salt,
     generate_internal_id,
     detect_pii_columns,
